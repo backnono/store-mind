@@ -47,3 +47,12 @@ APP_ENV=production LOG_LEVEL=info LOG_DIR=logs /opt/homebrew/opt/go@1.24/bin/go 
 In production mode, file naming format is:
 
 - `app-YYYY-MM-DD.log`
+
+## Customer QA API
+
+- `POST /api/v1/customer-qa/chat`
+- `GET /api/v1/customer-qa/faqs/search?store_id=1&q=付款`
+- `GET /api/v1/customer-qa/products/search?store_id=1&q=可乐`
+- `GET /api/v1/customer-qa/products/{product_id}/location?store_id=1`
+- `GET /api/v1/customer-qa/skus/{sku_id}/inventory?store_id=1`
+- `GET /api/v1/customer-qa/promotions/active?store_id=1`

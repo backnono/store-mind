@@ -67,9 +67,9 @@ func (h *CustomerQAHandler) Chat(c *gin.Context) {
 
 func (h *CustomerQAHandler) SearchFAQ(c *gin.Context) {
 	rid := requestIDFromContext(c.Request.Context())
-	storeID, err := strconv.ParseInt(c.Query("store_id"), 10, 64)
-	if err != nil {
-		h.log.Warn("faq_bad_request", zap.String("request_id", rid), zap.Error(err))
+	storeID, ok := parseStoreID(c)
+	if !ok {
+		h.log.Warn("faq_bad_request", zap.String("request_id", rid))
 		writeError(c, http.StatusBadRequest, "bad_request", "store_id is required")
 		return
 	}
@@ -100,4 +100,153 @@ func (h *CustomerQAHandler) SearchFAQ(c *gin.Context) {
 			"request_id": rid,
 		},
 	})
+}
+
+func (h *CustomerQAHandler) SearchProducts(c *gin.Context) {
+	rid := requestIDFromContext(c.Request.Context())
+	storeID, ok := parseStoreID(c)
+	if !ok {
+		h.log.Warn("product_search_bad_request", zap.String("request_id", rid))
+		writeError(c, http.StatusBadRequest, "bad_request", "store_id is required")
+		return
+	}
+	query := c.Query("q")
+	limit := parseLimit(c, 10)
+
+	items, err := h.svc.SearchProducts(c.Request.Context(), app.ProductSearchRequest{RequestID: rid, StoreID: storeID, Query: query, Limit: limit})
+	if err != nil {
+		if errors.Is(err, domain.ErrInvalidArgument) {
+			h.log.Warn("product_search_invalid_argument", zap.String("request_id", rid), zap.Error(err))
+			writeError(c, http.StatusBadRequest, "invalid_argument", "store_id and q are required")
+			return
+		}
+		h.log.Error("product_search_internal_error", zap.String("request_id", rid), zap.Error(err))
+		writeError(c, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"items": items,
+		"meta": gin.H{
+			"request_id": rid,
+		},
+	})
+}
+
+func (h *CustomerQAHandler) GetProductLocation(c *gin.Context) {
+	rid := requestIDFromContext(c.Request.Context())
+	storeID, ok := parseStoreID(c)
+	if !ok {
+		h.log.Warn("product_location_bad_request", zap.String("request_id", rid))
+		writeError(c, http.StatusBadRequest, "bad_request", "store_id is required")
+		return
+	}
+	productID, err := strconv.ParseInt(c.Param("product_id"), 10, 64)
+	if err != nil {
+		h.log.Warn("product_location_bad_path", zap.String("request_id", rid), zap.Error(err))
+		writeError(c, http.StatusBadRequest, "bad_request", "product_id is required")
+		return
+	}
+
+	item, err := h.svc.GetProductLocation(c.Request.Context(), app.ProductLocationRequest{RequestID: rid, StoreID: storeID, ProductID: productID})
+	if err != nil {
+		if errors.Is(err, domain.ErrInvalidArgument) {
+			h.log.Warn("product_location_invalid_argument", zap.String("request_id", rid), zap.Error(err))
+			writeError(c, http.StatusBadRequest, "invalid_argument", "store_id and product_id are required")
+			return
+		}
+		if errors.Is(err, domain.ErrNotFound) {
+			h.log.Warn("product_location_not_found", zap.String("request_id", rid), zap.Error(err))
+			writeError(c, http.StatusNotFound, "not_found", "product location not found")
+			return
+		}
+		h.log.Error("product_location_internal_error", zap.String("request_id", rid), zap.Error(err))
+		writeError(c, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+
+	c.JSON(http.StatusOK, item)
+}
+
+func (h *CustomerQAHandler) GetInventory(c *gin.Context) {
+	rid := requestIDFromContext(c.Request.Context())
+	storeID, ok := parseStoreID(c)
+	if !ok {
+		h.log.Warn("inventory_bad_request", zap.String("request_id", rid))
+		writeError(c, http.StatusBadRequest, "bad_request", "store_id is required")
+		return
+	}
+	skuID, err := strconv.ParseInt(c.Param("sku_id"), 10, 64)
+	if err != nil {
+		h.log.Warn("inventory_bad_path", zap.String("request_id", rid), zap.Error(err))
+		writeError(c, http.StatusBadRequest, "bad_request", "sku_id is required")
+		return
+	}
+
+	item, err := h.svc.GetInventory(c.Request.Context(), app.InventoryRequest{RequestID: rid, StoreID: storeID, SKUID: skuID})
+	if err != nil {
+		if errors.Is(err, domain.ErrInvalidArgument) {
+			h.log.Warn("inventory_invalid_argument", zap.String("request_id", rid), zap.Error(err))
+			writeError(c, http.StatusBadRequest, "invalid_argument", "store_id and sku_id are required")
+			return
+		}
+		if errors.Is(err, domain.ErrNotFound) {
+			h.log.Warn("inventory_not_found", zap.String("request_id", rid), zap.Error(err))
+			writeError(c, http.StatusNotFound, "not_found", "inventory not found")
+			return
+		}
+		h.log.Error("inventory_internal_error", zap.String("request_id", rid), zap.Error(err))
+		writeError(c, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+
+	c.JSON(http.StatusOK, item)
+}
+
+func (h *CustomerQAHandler) ListActivePromotions(c *gin.Context) {
+	rid := requestIDFromContext(c.Request.Context())
+	storeID, ok := parseStoreID(c)
+	if !ok {
+		h.log.Warn("promotion_bad_request", zap.String("request_id", rid))
+		writeError(c, http.StatusBadRequest, "bad_request", "store_id is required")
+		return
+	}
+	limit := parseLimit(c, 10)
+
+	items, err := h.svc.ListActivePromotions(c.Request.Context(), app.PromotionListRequest{RequestID: rid, StoreID: storeID, Limit: limit})
+	if err != nil {
+		if errors.Is(err, domain.ErrInvalidArgument) {
+			h.log.Warn("promotion_invalid_argument", zap.String("request_id", rid), zap.Error(err))
+			writeError(c, http.StatusBadRequest, "invalid_argument", "store_id is required")
+			return
+		}
+		h.log.Error("promotion_internal_error", zap.String("request_id", rid), zap.Error(err))
+		writeError(c, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"items": items,
+		"meta": gin.H{
+			"request_id": rid,
+		},
+	})
+}
+
+func parseStoreID(c *gin.Context) (int64, bool) {
+	storeID, err := strconv.ParseInt(c.Query("store_id"), 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return storeID, true
+}
+
+func parseLimit(c *gin.Context, fallback int) int {
+	limit := fallback
+	if raw := c.Query("limit"); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil {
+			limit = parsed
+		}
+	}
+	return limit
 }
