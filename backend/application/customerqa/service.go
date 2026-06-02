@@ -13,16 +13,30 @@ import (
 type ChatRequest struct {
 	RequestID string
 	StoreID   int64
+	SessionID int64
 	UserID    *int64
 	Channel   string
 	Message   string
 }
 
 type ChatResponse struct {
-	SessionID int64
-	MessageID int64
-	Intent    string
-	Answer    string
+	SessionID       int64      `json:"session_id"`
+	MessageID       int64      `json:"message_id"`
+	Intent          string     `json:"intent"`
+	Answer          string     `json:"answer"`
+	Cards           []ChatCard `json:"cards"`
+	HandoffRequired bool       `json:"handoff_required"`
+}
+
+type ChatCard struct {
+	Type     string `json:"type"`
+	SKUID    int64  `json:"sku_id,omitempty"`
+	Name     string `json:"name,omitempty"`
+	Location string `json:"location,omitempty"`
+	Quantity int    `json:"quantity,omitempty"`
+	Title    string `json:"title,omitempty"`
+	Content  string `json:"content,omitempty"`
+	Validity string `json:"validity,omitempty"`
 }
 
 type FAQSearchRequest struct {
@@ -58,6 +72,18 @@ type PromotionListRequest struct {
 	Now       time.Time
 }
 
+type SessionListRequest struct {
+	RequestID string
+	StoreID   int64
+	Limit     int
+}
+
+type ToolCallListRequest struct {
+	RequestID string
+	SessionID int64
+	Limit     int
+}
+
 type Service interface {
 	Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error)
 	SearchFAQ(ctx context.Context, req FAQSearchRequest) ([]domain.FAQ, error)
@@ -65,6 +91,8 @@ type Service interface {
 	GetProductLocation(ctx context.Context, req ProductLocationRequest) (*domain.ProductLocation, error)
 	GetInventory(ctx context.Context, req InventoryRequest) (*domain.Inventory, error)
 	ListActivePromotions(ctx context.Context, req PromotionListRequest) ([]domain.Promotion, error)
+	ListSessions(ctx context.Context, req SessionListRequest) ([]domain.Session, error)
+	ListToolCalls(ctx context.Context, req ToolCallListRequest) ([]domain.ToolCall, error)
 }
 
 type service struct {
@@ -90,9 +118,9 @@ func (s *service) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, err
 	req.Message = strings.TrimSpace(req.Message)
 
 	s.log.Info("app_chat_start", "request_id", req.RequestID, "store_id", req.StoreID, "channel", req.Channel)
-	session, err := s.repo.CreateSession(ctx, &domain.Session{StoreID: req.StoreID, UserID: req.UserID, Channel: req.Channel})
+	session, err := s.resolveSession(ctx, req)
 	if err != nil {
-		s.log.Error("app_chat_create_session_failed", "request_id", req.RequestID, "error", err)
+		s.log.Error("app_chat_resolve_session_failed", "request_id", req.RequestID, "session_id", req.SessionID, "error", err)
 		return nil, err
 	}
 	intent := routeIntent(req.Message)
@@ -103,7 +131,7 @@ func (s *service) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, err
 		return nil, err
 	}
 
-	answer, toolErr := s.answerChat(ctx, session.ID, msg.ID, req.StoreID, req.Message, intent)
+	answer, cards, handoffRequired, toolErr := s.answerChat(ctx, session.ID, msg.ID, req.StoreID, req.Message, intent)
 	assistantMsg, err := s.repo.CreateMessage(ctx, &domain.Message{SessionID: session.ID, Role: "assistant", Content: answer, Intent: intent})
 	if err != nil {
 		s.log.Error("app_chat_create_assistant_message_failed", "request_id", req.RequestID, "session_id", session.ID, "error", err)
@@ -114,7 +142,7 @@ func (s *service) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, err
 		s.log.Warn("app_chat_fallback_answer", "request_id", req.RequestID, "session_id", session.ID, "error", toolErr)
 	}
 	s.log.Info("app_chat_success", "request_id", req.RequestID, "session_id", session.ID, "message_id", assistantMsg.ID, "intent", intent)
-	return &ChatResponse{SessionID: session.ID, MessageID: assistantMsg.ID, Intent: intent, Answer: answer}, nil
+	return &ChatResponse{SessionID: session.ID, MessageID: assistantMsg.ID, Intent: intent, Answer: answer, Cards: cards, HandoffRequired: handoffRequired}, nil
 }
 
 func (s *service) SearchFAQ(ctx context.Context, req FAQSearchRequest) ([]domain.FAQ, error) {
@@ -213,6 +241,32 @@ func (s *service) ListActivePromotions(ctx context.Context, req PromotionListReq
 	return items, nil
 }
 
+func (s *service) ListSessions(ctx context.Context, req SessionListRequest) ([]domain.Session, error) {
+	if req.StoreID <= 0 {
+		return nil, domain.ErrInvalidArgument
+	}
+	if req.Limit <= 0 {
+		req.Limit = 20
+	}
+	if req.Limit > 100 {
+		req.Limit = 100
+	}
+	return s.repo.ListSessions(ctx, req.StoreID, req.Limit)
+}
+
+func (s *service) ListToolCalls(ctx context.Context, req ToolCallListRequest) ([]domain.ToolCall, error) {
+	if req.SessionID <= 0 {
+		return nil, domain.ErrInvalidArgument
+	}
+	if req.Limit <= 0 {
+		req.Limit = 20
+	}
+	if req.Limit > 100 {
+		req.Limit = 100
+	}
+	return s.repo.ListToolCalls(ctx, req.SessionID, req.Limit)
+}
+
 func routeIntent(message string) string {
 	switch {
 	case strings.Contains(message, "人工") || strings.Contains(message, "客服"):
@@ -230,7 +284,7 @@ func routeIntent(message string) string {
 	}
 }
 
-func (s *service) answerChat(ctx context.Context, sessionID, messageID, storeID int64, message, intent string) (string, error) {
+func (s *service) answerChat(ctx context.Context, sessionID, messageID, storeID int64, message, intent string) (string, []ChatCard, bool, error) {
 	switch intent {
 	case "product_location":
 		return s.answerProductLocation(ctx, sessionID, messageID, storeID, message)
@@ -241,74 +295,100 @@ func (s *service) answerChat(ctx context.Context, sessionID, messageID, storeID 
 	case "faq":
 		return s.answerFAQ(ctx, sessionID, messageID, storeID, message)
 	case "handoff":
-		return "你可以在小程序右上角点击“联系客服”进入人工服务。", nil
+		return "你可以在小程序右上角点击“联系客服”进入人工服务。", nil, true, nil
 	default:
-		return "我主要负责回答本门店的商品、库存、优惠和购物流程问题。你可以问我商品在哪里，或者今天有什么活动。", nil
+		return "我主要负责回答本门店的商品、库存、优惠和购物流程问题。你可以问我商品在哪里，或者今天有什么活动。", nil, false, nil
 	}
 }
 
-func (s *service) answerProductLocation(ctx context.Context, sessionID, messageID, storeID int64, message string) (string, error) {
+func (s *service) answerProductLocation(ctx context.Context, sessionID, messageID, storeID int64, message string) (string, []ChatCard, bool, error) {
 	query := extractProductQuery(message)
 	products, err := s.searchProductsTool(ctx, sessionID, messageID, storeID, query)
 	if err != nil {
-		return "暂时无法查询商品位置，你可以稍后再试或联系人工客服。", err
+		return "暂时无法查询商品位置，你可以稍后再试或联系人工客服。", nil, false, err
 	}
 	if len(products) == 0 {
-		return fmt.Sprintf("我没有找到“%s”的在售信息。你可以换个叫法再问我，或联系人工客服确认。", query), nil
+		return fmt.Sprintf("我没有找到“%s”的在售信息。你可以换个叫法再问我，或联系人工客服确认。", query), nil, false, nil
 	}
 
 	location, err := s.getProductLocationTool(ctx, sessionID, messageID, storeID, products[0].ID)
 	if err != nil {
-		return "暂时无法查询商品位置，你可以稍后再试或联系人工客服。", err
+		return "暂时无法查询商品位置，你可以稍后再试或联系人工客服。", nil, false, err
 	}
-	return fmt.Sprintf("找到了。%s在%s %s 货架第%d层，%s。", products[0].Name, location.ZoneName, location.ShelfCode, location.LayerNo, location.PositionDesc), nil
+	card := ChatCard{
+		Type:     "product",
+		Name:     buildProductDisplayName(products[0].Name, location.SKUID),
+		Location: fmt.Sprintf("%s %s 货架第%d层", location.ZoneName, location.ShelfCode, location.LayerNo),
+	}
+	if location.SKUID != nil {
+		card.SKUID = *location.SKUID
+	}
+	return fmt.Sprintf("找到了。%s在%s %s 货架第%d层，%s。", products[0].Name, location.ZoneName, location.ShelfCode, location.LayerNo, location.PositionDesc), []ChatCard{card}, false, nil
 }
 
-func (s *service) answerInventory(ctx context.Context, sessionID, messageID, storeID int64, message string) (string, error) {
+func (s *service) answerInventory(ctx context.Context, sessionID, messageID, storeID int64, message string) (string, []ChatCard, bool, error) {
 	query := extractProductQuery(message)
 	products, err := s.searchProductsTool(ctx, sessionID, messageID, storeID, query)
 	if err != nil {
-		return "暂时无法查询库存信息，你可以稍后再试或联系人工客服。", err
+		return "暂时无法查询库存信息，你可以稍后再试或联系人工客服。", nil, false, err
 	}
 	if len(products) == 0 {
-		return fmt.Sprintf("我没有找到“%s”的在售信息。你可以换个叫法再问我，或联系人工客服确认。", query), nil
+		return fmt.Sprintf("我没有找到“%s”的在售信息。你可以换个叫法再问我，或联系人工客服确认。", query), nil, false, nil
 	}
 
 	location, err := s.getProductLocationTool(ctx, sessionID, messageID, storeID, products[0].ID)
 	if err != nil {
-		return "暂时无法查询库存信息，你可以稍后再试或联系人工客服。", err
+		return "暂时无法查询库存信息，你可以稍后再试或联系人工客服。", nil, false, err
 	}
 	if location.SKUID == nil {
-		return "暂时无法定位到对应 SKU 的库存记录，你可以联系人工客服确认。", nil
+		return "暂时无法定位到对应 SKU 的库存记录，你可以联系人工客服确认。", nil, false, nil
 	}
 
 	inventory, err := s.getInventoryTool(ctx, sessionID, messageID, storeID, *location.SKUID)
 	if err != nil {
-		return "暂时无法查询库存信息，你可以稍后再试或联系人工客服。", err
+		return "暂时无法查询库存信息，你可以稍后再试或联系人工客服。", nil, false, err
 	}
-	return fmt.Sprintf("系统显示%s还有 %d 件，在%s %s 货架。", products[0].Name, inventory.Quantity, location.ZoneName, location.ShelfCode), nil
+	card := ChatCard{
+		Type:     "inventory",
+		SKUID:    inventory.SKUID,
+		Name:     products[0].Name,
+		Location: fmt.Sprintf("%s %s 货架", location.ZoneName, location.ShelfCode),
+		Quantity: inventory.Quantity,
+	}
+	return fmt.Sprintf("系统显示%s还有 %d 件，在%s %s 货架。", products[0].Name, inventory.Quantity, location.ZoneName, location.ShelfCode), []ChatCard{card}, false, nil
 }
 
-func (s *service) answerPromotion(ctx context.Context, sessionID, messageID, storeID int64) (string, error) {
+func (s *service) answerPromotion(ctx context.Context, sessionID, messageID, storeID int64) (string, []ChatCard, bool, error) {
 	items, err := s.listPromotionsTool(ctx, sessionID, messageID, storeID)
 	if err != nil {
-		return "暂时无法查询活动信息，你可以稍后再试或联系人工客服。", err
+		return "暂时无法查询活动信息，你可以稍后再试或联系人工客服。", nil, false, err
 	}
 	if len(items) == 0 {
-		return "当前没有查询到有效活动。你也可以问我某个商品有没有优惠。", nil
+		return "当前没有查询到有效活动。你也可以问我某个商品有没有优惠。", nil, false, nil
 	}
-	return fmt.Sprintf("当前有活动：%s，有效期到 %s。", items[0].Title, items[0].EndAt.Format("01-02 15:04")), nil
+	card := ChatCard{
+		Type:     "promotion",
+		Title:    items[0].Title,
+		Content:  items[0].Description,
+		Validity: items[0].EndAt.Format("01-02 15:04"),
+	}
+	return fmt.Sprintf("当前有活动：%s，有效期到 %s。", items[0].Title, items[0].EndAt.Format("01-02 15:04")), []ChatCard{card}, false, nil
 }
 
-func (s *service) answerFAQ(ctx context.Context, sessionID, messageID, storeID int64, message string) (string, error) {
+func (s *service) answerFAQ(ctx context.Context, sessionID, messageID, storeID int64, message string) (string, []ChatCard, bool, error) {
 	items, err := s.searchFAQTool(ctx, sessionID, messageID, storeID, message)
 	if err != nil {
-		return "暂时无法查询门店规则，你可以稍后再试或联系人工客服。", err
+		return "暂时无法查询门店规则，你可以稍后再试或联系人工客服。", nil, false, err
 	}
 	if len(items) == 0 {
-		return "我暂时没有找到对应的门店规则，你可以换个问法，或点击联系客服。", nil
+		return "我暂时没有找到对应的门店规则，你可以换个问法，或点击联系客服。", nil, false, nil
 	}
-	return items[0].Answer, nil
+	card := ChatCard{
+		Type:    "faq",
+		Title:   items[0].Question,
+		Content: items[0].Answer,
+	}
+	return items[0].Answer, []ChatCard{card}, false, nil
 }
 
 func (s *service) searchProductsTool(ctx context.Context, sessionID, messageID, storeID int64, query string) ([]domain.Product, error) {
@@ -393,4 +473,25 @@ func extractProductQuery(message string) string {
 		query = strings.ReplaceAll(query, replacements[i], replacements[i+1])
 	}
 	return strings.TrimSpace(query)
+}
+
+func buildProductDisplayName(name string, skuID *int64) string {
+	if skuID == nil {
+		return name
+	}
+	return name
+}
+
+func (s *service) resolveSession(ctx context.Context, req ChatRequest) (*domain.Session, error) {
+	if req.SessionID > 0 {
+		session, err := s.repo.GetSession(ctx, req.SessionID)
+		if err != nil {
+			return nil, err
+		}
+		if session.StoreID != req.StoreID {
+			return nil, domain.ErrInvalidArgument
+		}
+		return session, nil
+	}
+	return s.repo.CreateSession(ctx, &domain.Session{StoreID: req.StoreID, UserID: req.UserID, Channel: req.Channel})
 }
