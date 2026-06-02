@@ -18,17 +18,7 @@ import (
 type fakeService struct{}
 
 func (f fakeService) Chat(_ context.Context, req app.ChatRequest) (*app.ChatResponse, error) {
-	sessionID := int64(1)
-	if req.SessionID != 0 {
-		sessionID = req.SessionID
-	}
-	return &app.ChatResponse{
-		SessionID: sessionID,
-		MessageID: 2,
-		Intent:    "product_location",
-		Answer:    "可口可乐在饮料区 B-02 货架",
-		Cards:     []app.ChatCard{{Type: "product", SKUID: 1001, Name: "可口可乐 500ml", Location: "饮料区 B-02 货架"}},
-	}, nil
+	return &app.ChatResponse{SessionID: 1, MessageID: 2, Intent: "product_location", Answer: "可口可乐在饮料区 B-02 货架"}, nil
 }
 
 func (f fakeService) SearchFAQ(_ context.Context, req app.FAQSearchRequest) ([]domain.FAQ, error) {
@@ -51,17 +41,9 @@ func (f fakeService) ListActivePromotions(_ context.Context, req app.PromotionLi
 	return []domain.Promotion{{ID: 1, StoreID: req.StoreID, Title: "饮料第二件半价", Status: "active", StartAt: time.Now(), EndAt: time.Now().Add(time.Hour)}}, nil
 }
 
-func (f fakeService) ListSessions(_ context.Context, req app.SessionListRequest) ([]domain.Session, error) {
-	return []domain.Session{{ID: 7, StoreID: req.StoreID, Channel: "miniapp"}}, nil
-}
-
-func (f fakeService) ListToolCalls(_ context.Context, req app.ToolCallListRequest) ([]domain.ToolCall, error) {
-	return []domain.ToolCall{{ID: 1, SessionID: req.SessionID, ToolName: "search_faq", Success: true}}, nil
-}
-
 func TestCustomerQAChat(t *testing.T) {
 	r := NewRouter(zap.NewNop(), NewCustomerQAHandler(fakeService{}, zap.NewNop()))
-	body, _ := json.Marshal(map[string]any{"store_id": 1, "session_id": 7, "channel": "miniapp", "message": "可乐在哪里"})
+	body, _ := json.Marshal(map[string]any{"store_id": 1, "channel": "miniapp", "message": "可乐在哪里"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/customer-qa/chat", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Request-Id", "rid-chat")
@@ -85,16 +67,6 @@ func TestCustomerQAChat(t *testing.T) {
 	}
 	if resp["intent"] != "product_location" {
 		t.Fatalf("expected intent in response, got %+v", resp)
-	}
-	if resp["session_id"] != float64(7) {
-		t.Fatalf("expected reused session_id 7, got %+v", resp)
-	}
-	cards, ok := resp["cards"].([]any)
-	if !ok || len(cards) != 1 {
-		t.Fatalf("expected one card, got %+v", resp["cards"])
-	}
-	if resp["handoff_required"] != false {
-		t.Fatalf("expected handoff_required false, got %+v", resp)
 	}
 }
 
@@ -201,29 +173,5 @@ func TestCustomerQAListActivePromotions(t *testing.T) {
 	items, ok := resp["items"].([]any)
 	if !ok || len(items) != 1 {
 		t.Fatalf("expected one item, got %+v", resp["items"])
-	}
-}
-
-func TestCustomerQAListSessions(t *testing.T) {
-	r := NewRouter(zap.NewNop(), NewCustomerQAHandler(fakeService{}, zap.NewNop()))
-	req := httptest.NewRequest(http.MethodGet, "/api/admin/customer-qa/sessions?store_id=1", nil)
-	req.Header.Set("X-Request-Id", "rid-sessions")
-	rr := httptest.NewRecorder()
-
-	r.ServeHTTP(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-}
-
-func TestCustomerQAListToolCalls(t *testing.T) {
-	r := NewRouter(zap.NewNop(), NewCustomerQAHandler(fakeService{}, zap.NewNop()))
-	req := httptest.NewRequest(http.MethodGet, "/api/admin/customer-qa/tool-calls?session_id=7", nil)
-	req.Header.Set("X-Request-Id", "rid-tool-calls")
-	rr := httptest.NewRecorder()
-
-	r.ServeHTTP(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
 	}
 }

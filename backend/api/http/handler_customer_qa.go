@@ -26,7 +26,6 @@ func NewCustomerQAHandler(svc app.Service, log *zap.Logger) *CustomerQAHandler {
 
 type chatRequest struct {
 	StoreID int64  `json:"store_id"`
-	SessionID int64 `json:"session_id"`
 	UserID  *int64 `json:"user_id"`
 	Channel string `json:"channel"`
 	Message string `json:"message"`
@@ -42,7 +41,7 @@ func (h *CustomerQAHandler) Chat(c *gin.Context) {
 	}
 
 	h.log.Info("chat_request", zap.String("request_id", rid), zap.Int64("store_id", req.StoreID), zap.String("channel", req.Channel))
-	resp, err := h.svc.Chat(c.Request.Context(), app.ChatRequest{RequestID: rid, StoreID: req.StoreID, SessionID: req.SessionID, UserID: req.UserID, Channel: req.Channel, Message: req.Message})
+	resp, err := h.svc.Chat(c.Request.Context(), app.ChatRequest{RequestID: rid, StoreID: req.StoreID, UserID: req.UserID, Channel: req.Channel, Message: req.Message})
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidArgument) {
 			h.log.Warn("chat_invalid_argument", zap.String("request_id", rid), zap.Error(err))
@@ -56,12 +55,10 @@ func (h *CustomerQAHandler) Chat(c *gin.Context) {
 
 	h.log.Info("chat_success", zap.String("request_id", rid), zap.Int64("session_id", resp.SessionID), zap.Int64("message_id", resp.MessageID))
 	c.JSON(http.StatusOK, gin.H{
-		"session_id":       resp.SessionID,
-		"message_id":       resp.MessageID,
-		"intent":           resp.Intent,
-		"answer":           resp.Answer,
-		"cards":            resp.Cards,
-		"handoff_required": resp.HandoffRequired,
+		"session_id": resp.SessionID,
+		"message_id": resp.MessageID,
+		"intent":     resp.Intent,
+		"answer":     resp.Answer,
 		"meta": gin.H{
 			"request_id": rid,
 		},
@@ -233,52 +230,6 @@ func (h *CustomerQAHandler) ListActivePromotions(c *gin.Context) {
 		"meta": gin.H{
 			"request_id": rid,
 		},
-	})
-}
-
-func (h *CustomerQAHandler) ListSessions(c *gin.Context) {
-	rid := requestIDFromContext(c.Request.Context())
-	storeID, ok := parseStoreID(c)
-	if !ok {
-		writeError(c, http.StatusBadRequest, "bad_request", "store_id is required")
-		return
-	}
-	limit := parseLimit(c, 20)
-	items, err := h.svc.ListSessions(c.Request.Context(), app.SessionListRequest{RequestID: rid, StoreID: storeID, Limit: limit})
-	if err != nil {
-		if errors.Is(err, domain.ErrInvalidArgument) {
-			writeError(c, http.StatusBadRequest, "invalid_argument", "store_id is required")
-			return
-		}
-		writeError(c, http.StatusInternalServerError, "internal_error", "internal server error")
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{
-		"items": items,
-		"meta": gin.H{"request_id": rid},
-	})
-}
-
-func (h *CustomerQAHandler) ListToolCalls(c *gin.Context) {
-	rid := requestIDFromContext(c.Request.Context())
-	sessionID, err := strconv.ParseInt(c.Query("session_id"), 10, 64)
-	if err != nil {
-		writeError(c, http.StatusBadRequest, "bad_request", "session_id is required")
-		return
-	}
-	limit := parseLimit(c, 20)
-	items, err := h.svc.ListToolCalls(c.Request.Context(), app.ToolCallListRequest{RequestID: rid, SessionID: sessionID, Limit: limit})
-	if err != nil {
-		if errors.Is(err, domain.ErrInvalidArgument) {
-			writeError(c, http.StatusBadRequest, "invalid_argument", "session_id is required")
-			return
-		}
-		writeError(c, http.StatusInternalServerError, "internal_error", "internal server error")
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{
-		"items": items,
-		"meta": gin.H{"request_id": rid},
 	})
 }
 

@@ -15,7 +15,6 @@ type fakeRepo struct {
 	mid       int64
 	toolCalls []domain.ToolCall
 	messages  []domain.Message
-	sessions  []domain.Session
 }
 
 type fakeLogger struct{}
@@ -27,18 +26,7 @@ func (fakeLogger) Error(string, ...any) {}
 func (f *fakeRepo) CreateSession(_ context.Context, s *domain.Session) (*domain.Session, error) {
 	f.sid++
 	s.ID = f.sid
-	f.sessions = append(f.sessions, *s)
 	return s, nil
-}
-
-func (f *fakeRepo) GetSession(_ context.Context, sessionID int64) (*domain.Session, error) {
-	for _, session := range f.sessions {
-		if session.ID == sessionID {
-			copy := session
-			return &copy, nil
-		}
-	}
-	return nil, domain.ErrNotFound
 }
 
 func (f *fakeRepo) CreateMessage(_ context.Context, m *domain.Message) (*domain.Message, error) {
@@ -52,14 +40,6 @@ func (f *fakeRepo) CreateToolCall(_ context.Context, tc *domain.ToolCall) (*doma
 	tc.ID = int64(len(f.toolCalls) + 1)
 	f.toolCalls = append(f.toolCalls, *tc)
 	return tc, nil
-}
-
-func (f *fakeRepo) ListSessions(_ context.Context, storeID int64, limit int) ([]domain.Session, error) {
-	return f.sessions, nil
-}
-
-func (f *fakeRepo) ListToolCalls(_ context.Context, sessionID int64, limit int) ([]domain.ToolCall, error) {
-	return f.toolCalls, nil
 }
 
 func (f *fakeRepo) SearchFAQ(_ context.Context, storeID int64, query string, limit int) ([]domain.FAQ, error) {
@@ -105,12 +85,6 @@ func TestServiceChat(t *testing.T) {
 	if resp.Intent != "product_location" {
 		t.Fatalf("expected product_location intent, got %s", resp.Intent)
 	}
-	if len(resp.Cards) != 1 || resp.Cards[0].Type != "product" {
-		t.Fatalf("expected product card, got %+v", resp.Cards)
-	}
-	if resp.HandoffRequired {
-		t.Fatalf("expected handoff_required false")
-	}
 	if !strings.Contains(resp.Answer, "饮料区") {
 		t.Fatalf("unexpected answer: %s", resp.Answer)
 	}
@@ -119,24 +93,6 @@ func TestServiceChat(t *testing.T) {
 	}
 	if len(repo.messages) != 2 || repo.messages[1].Role != "assistant" {
 		t.Fatalf("expected assistant message to be persisted, got %+v", repo.messages)
-	}
-}
-
-func TestServiceChatReuseSession(t *testing.T) {
-	repo := &fakeRepo{
-		sid:      9,
-		sessions: []domain.Session{{ID: 7, StoreID: 1, Channel: "miniapp"}},
-	}
-	svc := NewService(repo, fakeLogger{})
-	resp, err := svc.Chat(context.Background(), ChatRequest{RequestID: "r2", StoreID: 1, SessionID: 7, Channel: "miniapp", Message: "怎么付款"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.SessionID != 7 {
-		t.Fatalf("expected reused session 7, got %d", resp.SessionID)
-	}
-	if len(repo.sessions) != 1 {
-		t.Fatalf("expected no new session, got %+v", repo.sessions)
 	}
 }
 
@@ -149,9 +105,6 @@ func TestServiceChatInventory(t *testing.T) {
 	}
 	if resp.Intent != "inventory" {
 		t.Fatalf("expected inventory intent, got %s", resp.Intent)
-	}
-	if len(resp.Cards) != 1 || resp.Cards[0].Type != "inventory" {
-		t.Fatalf("expected inventory card, got %+v", resp.Cards)
 	}
 	if !strings.Contains(resp.Answer, "系统显示") {
 		t.Fatalf("unexpected answer: %s", resp.Answer)
@@ -171,9 +124,6 @@ func TestServiceChatPromotion(t *testing.T) {
 	if resp.Intent != "promotion" {
 		t.Fatalf("expected promotion intent, got %s", resp.Intent)
 	}
-	if len(resp.Cards) != 1 || resp.Cards[0].Type != "promotion" {
-		t.Fatalf("expected promotion card, got %+v", resp.Cards)
-	}
 	if !strings.Contains(resp.Answer, "饮料第二件半价") {
 		t.Fatalf("unexpected answer: %s", resp.Answer)
 	}
@@ -191,9 +141,6 @@ func TestServiceChatFAQ(t *testing.T) {
 	}
 	if resp.Intent != "faq" {
 		t.Fatalf("expected faq intent, got %s", resp.Intent)
-	}
-	if len(resp.Cards) != 1 || resp.Cards[0].Type != "faq" {
-		t.Fatalf("expected faq card, got %+v", resp.Cards)
 	}
 	if !strings.Contains(resp.Answer, "微信") && !strings.Contains(resp.Answer, "支付宝") {
 		t.Fatalf("unexpected answer: %s", resp.Answer)
@@ -213,9 +160,6 @@ func TestServiceChatUnsupported(t *testing.T) {
 	if resp.Intent != "unsupported" {
 		t.Fatalf("expected unsupported intent, got %s", resp.Intent)
 	}
-	if len(resp.Cards) != 0 {
-		t.Fatalf("expected no cards, got %+v", resp.Cards)
-	}
 	if !strings.Contains(resp.Answer, "商品") {
 		t.Fatalf("unexpected answer: %s", resp.Answer)
 	}
@@ -234,29 +178,8 @@ func TestServiceChatToolFailureFallback(t *testing.T) {
 	if resp.Intent != "product_location" {
 		t.Fatalf("expected product_location intent, got %s", resp.Intent)
 	}
-	if len(resp.Cards) != 0 {
-		t.Fatalf("expected no cards on fallback, got %+v", resp.Cards)
-	}
 	if !strings.Contains(resp.Answer, "暂时") {
 		t.Fatalf("unexpected answer: %s", resp.Answer)
-	}
-}
-
-func TestServiceChatHandoff(t *testing.T) {
-	repo := &fakeRepo{}
-	svc := NewService(repo, fakeLogger{})
-	resp, err := svc.Chat(context.Background(), ChatRequest{RequestID: "r1", StoreID: 1, Channel: "miniapp", Message: "我要找人工"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Intent != "handoff" {
-		t.Fatalf("expected handoff intent, got %s", resp.Intent)
-	}
-	if !resp.HandoffRequired {
-		t.Fatalf("expected handoff_required true")
-	}
-	if len(resp.Cards) != 0 {
-		t.Fatalf("expected no cards, got %+v", resp.Cards)
 	}
 }
 
@@ -312,30 +235,6 @@ func TestServiceListActivePromotions(t *testing.T) {
 	}
 	if len(resp) != 1 || resp[0].Title == "" {
 		t.Fatalf("unexpected promotions: %+v", resp)
-	}
-}
-
-func TestServiceListSessions(t *testing.T) {
-	repo := &fakeRepo{sessions: []domain.Session{{ID: 7, StoreID: 1, Channel: "miniapp"}}}
-	svc := NewService(repo, fakeLogger{})
-	resp, err := svc.ListSessions(context.Background(), SessionListRequest{RequestID: "r1", StoreID: 1, Limit: 10})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(resp) != 1 || resp[0].ID != 7 {
-		t.Fatalf("unexpected sessions: %+v", resp)
-	}
-}
-
-func TestServiceListToolCalls(t *testing.T) {
-	repo := &fakeRepo{toolCalls: []domain.ToolCall{{ID: 1, SessionID: 7, ToolName: "search_faq", Success: true}}}
-	svc := NewService(repo, fakeLogger{})
-	resp, err := svc.ListToolCalls(context.Background(), ToolCallListRequest{RequestID: "r1", SessionID: 7, Limit: 10})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(resp) != 1 || resp[0].ToolName != "search_faq" {
-		t.Fatalf("unexpected tool calls: %+v", resp)
 	}
 }
 

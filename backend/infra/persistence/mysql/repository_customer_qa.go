@@ -29,23 +29,6 @@ func (r *CustomerQARepository) CreateSession(ctx context.Context, session *domai
 	return session, nil
 }
 
-func (r *CustomerQARepository) GetSession(ctx context.Context, sessionID int64) (*domain.Session, error) {
-	var row SessionModel
-	if err := r.db.WithContext(ctx).Where("id = ?", sessionID).First(&row).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, domain.ErrNotFound
-		}
-		return nil, err
-	}
-	return &domain.Session{
-		ID:        row.ID,
-		StoreID:   row.StoreID,
-		UserID:    row.UserID,
-		Channel:   row.Channel,
-		StartedAt: row.StartedAt,
-	}, nil
-}
-
 func (r *CustomerQARepository) CreateMessage(ctx context.Context, message *domain.Message) (*domain.Message, error) {
 	m := MessageModel{SessionID: message.SessionID, Role: message.Role, Content: message.Content, Intent: message.Intent, Confidence: message.Confidence}
 	if err := r.db.WithContext(ctx).Create(&m).Error; err != nil {
@@ -73,47 +56,6 @@ func (r *CustomerQARepository) CreateToolCall(ctx context.Context, toolCall *dom
 	toolCall.ID = m.ID
 	toolCall.CreatedAt = m.CreatedAt
 	return toolCall, nil
-}
-
-func (r *CustomerQARepository) ListSessions(ctx context.Context, storeID int64, limit int) ([]domain.Session, error) {
-	var rows []SessionModel
-	if err := r.db.WithContext(ctx).Where("store_id = ?", storeID).Order("id DESC").Limit(limit).Find(&rows).Error; err != nil {
-		return nil, err
-	}
-	items := make([]domain.Session, 0, len(rows))
-	for _, row := range rows {
-		items = append(items, domain.Session{
-			ID:        row.ID,
-			StoreID:   row.StoreID,
-			UserID:    row.UserID,
-			Channel:   row.Channel,
-			StartedAt: row.StartedAt,
-		})
-	}
-	return items, nil
-}
-
-func (r *CustomerQARepository) ListToolCalls(ctx context.Context, sessionID int64, limit int) ([]domain.ToolCall, error) {
-	var rows []ToolCallModel
-	if err := r.db.WithContext(ctx).Where("session_id = ?", sessionID).Order("id ASC").Limit(limit).Find(&rows).Error; err != nil {
-		return nil, err
-	}
-	items := make([]domain.ToolCall, 0, len(rows))
-	for _, row := range rows {
-		items = append(items, domain.ToolCall{
-			ID:           row.ID,
-			SessionID:    row.SessionID,
-			MessageID:    row.MessageID,
-			ToolName:     row.ToolName,
-			InputJSON:    row.InputJSON,
-			OutputJSON:   row.OutputJSON,
-			LatencyMS:    row.LatencyMS,
-			Success:      row.Success,
-			ErrorMessage: row.ErrorMessage,
-			CreatedAt:    row.CreatedAt,
-		})
-	}
-	return items, nil
 }
 
 func (r *CustomerQARepository) SearchFAQ(ctx context.Context, storeID int64, query string, limit int) ([]domain.FAQ, error) {
