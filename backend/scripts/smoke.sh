@@ -55,4 +55,20 @@ echo "[smoke] check faq"
 FAQ="$(curl -fsS "http://127.0.0.1:${APP_PORT}/api/v1/customer-qa/faqs/search?store_id=1&q=付款")"
 echo "$FAQ" | rg '怎么付款|支付|付款' >/dev/null
 
+echo "[smoke] check chat location"
+CHAT_LOCATION="$(curl -fsS "http://127.0.0.1:${APP_PORT}/api/v1/customer-qa/chat" \
+  -H 'Content-Type: application/json' \
+  -d '{"store_id":1,"channel":"miniapp","message":"可乐在哪里"}')"
+echo "$CHAT_LOCATION" | rg '"intent":"product_location"' >/dev/null
+echo "$CHAT_LOCATION" | rg '饮料区|B-02' >/dev/null
+echo "$CHAT_LOCATION" | rg '"cards":\[' >/dev/null
+
+echo "[smoke] check chat faq"
+CHAT_FAQ="$(curl -fsS "http://127.0.0.1:${APP_PORT}/api/v1/customer-qa/chat" \
+  -H 'Content-Type: application/json' \
+  -d '{"store_id":1,"channel":"miniapp","message":"怎么付款"}')"
+echo "$CHAT_FAQ" | rg '"intent":"faq"' >/dev/null
+echo "$CHAT_FAQ" | rg '微信|支付宝|扫码结算' >/dev/null
+echo "$CHAT_FAQ" | rg '"cards":\[' >/dev/null
+
 echo "SMOKE PASS"

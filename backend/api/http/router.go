@@ -21,5 +21,12 @@ func NewRouter(l *zap.Logger, customerQAHandler *CustomerQAHandler) *gin.Engine 
 	v1 := r.Group("/api/v1")
 	v1.POST("/customer-qa/chat", customerQAHandler.Chat)
 	v1.GET("/customer-qa/faqs/search", customerQAHandler.SearchFAQ)
+	v1.GET("/customer-qa/products/search", customerQAHandler.SearchProducts)
+	v1.GET("/customer-qa/products/:product_id/location", customerQAHandler.GetProductLocation)
+	v1.GET("/customer-qa/skus/:sku_id/inventory", customerQAHandler.GetInventory)
+	v1.GET("/customer-qa/promotions/active", customerQAHandler.ListActivePromotions)
+	admin := r.Group("/api/admin")
+	admin.GET("/customer-qa/sessions", customerQAHandler.ListSessions)
+	admin.GET("/customer-qa/tool-calls", customerQAHandler.ListToolCalls)
 	return r
 }
