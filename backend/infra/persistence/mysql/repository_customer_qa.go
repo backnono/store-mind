@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	domain "store-mind/domain/customerqa"
@@ -131,6 +133,35 @@ func (r *CustomerQARepository) SearchFAQ(ctx context.Context, storeID int64, que
 		out = append(out, domain.FAQ{ID: row.ID, StoreID: row.StoreID, Question: row.Question, Answer: row.Answer, Category: row.Category})
 	}
 	return out, nil
+}
+
+func (r *CustomerQARepository) SearchKnowledge(ctx context.Context, storeID int64, query string, knowledgeTypes []string, limit int) ([]domain.KnowledgeChunk, error) {
+	pattern := fmt.Sprintf("%%%s%%", query)
+	var rows []FAQModel
+	db := r.db.WithContext(ctx).
+		Where("store_id = ? AND status = ? AND (question LIKE ? OR answer LIKE ? OR keywords LIKE ?)", storeID, "active", pattern, pattern, pattern)
+
+	if len(knowledgeTypes) > 0 && !slices.Contains(knowledgeTypes, "faq") {
+		db = db.Where("category IN ?", knowledgeCategoriesForTypes(knowledgeTypes))
+	}
+
+	if err := db.Order("id DESC").Limit(limit).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	items := make([]domain.KnowledgeChunk, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, domain.KnowledgeChunk{
+			ID:            row.ID,
+			DocID:         fmt.Sprintf("faq_%d", row.ID),
+			StoreID:       row.StoreID,
+			KnowledgeType: knowledgeTypeForFAQCategory(row.Category),
+			Title:         row.Question,
+			Content:       row.Answer,
+			Tags:          decodeJSONList(row.Keywords),
+		})
+	}
+	return rankKnowledgeChunks(query, items), nil
 }
 
 func (r *CustomerQARepository) SearchProducts(ctx context.Context, storeID int64, query string, limit int) ([]domain.Product, error) {
@@ -287,4 +318,79 @@ func decodeJSONList(raw string) []string {
 		return nil
 	}
 	return items
+}
+
+func knowledgeCategoriesForTypes(knowledgeTypes []string) []string {
+	seen := map[string]struct{}{}
+	var categories []string
+	for _, kind := range knowledgeTypes {
+		switch kind {
+		case "store_policy":
+			for _, category := range []string{"payment", "refund", "store_hours", "customer_service"} {
+				if _, ok := seen[category]; ok {
+					continue
+				}
+				seen[category] = struct{}{}
+				categories = append(categories, category)
+			}
+		case "faq":
+			// FAQ data shares the same backing table in v1, so leave category unrestricted.
+		}
+	}
+	return categories
+}
+
+func knowledgeTypeForFAQCategory(category string) string {
+	switch category {
+	case "payment", "refund", "store_hours", "customer_service":
+		return "store_policy"
+	default:
+		return "faq"
+	}
+}
+
+func rankKnowledgeChunks(query string, items []domain.KnowledgeChunk) []domain.KnowledgeChunk {
+	type scored struct {
+		item  domain.KnowledgeChunk
+		score int
+	}
+
+	query = strings.TrimSpace(query)
+	if query == "" || len(items) <= 1 {
+		return items
+	}
+
+	scoredItems := make([]scored, 0, len(items))
+	for _, item := range items {
+		score := strings.Count(item.Title, query)*3 + strings.Count(item.Content, query)*2
+		for _, tag := range item.Tags {
+			if strings.Contains(tag, query) {
+				score++
+			}
+		}
+		scoredItems = append(scoredItems, scored{item: item, score: score})
+	}
+
+	slices.SortStableFunc(scoredItems, func(a, b scored) int {
+		if a.score == b.score {
+			switch {
+			case a.item.ID > b.item.ID:
+				return -1
+			case a.item.ID < b.item.ID:
+				return 1
+			default:
+				return 0
+			}
+		}
+		if a.score > b.score {
+			return -1
+		}
+		return 1
+	})
+
+	out := make([]domain.KnowledgeChunk, 0, len(scoredItems))
+	for _, item := range scoredItems {
+		out = append(out, item.item)
+	}
+	return out
 }

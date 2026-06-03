@@ -370,3 +370,40 @@ If some integrations remain stubbed, update the design and plan docs with exact 
 git add docs/plans/2026-06-02-customer-qa-llm-rag-design.md docs/plans/2026-06-02-customer-qa-llm-rag-implementation-plan.md
 git commit -m "docs: finalize customer qa llm rag plan"
 ```
+
+---
+
+## Verification Result
+
+Completed on the current branch with:
+
+```bash
+/opt/homebrew/opt/go@1.24/bin/go test ./...
+```
+
+Observed result:
+
+- `ok   store-mind/api/http`
+- `ok   store-mind/application/customerqa`
+- `ok   store-mind/infra/ai`
+- `ok   store-mind/infra/logger`
+- `ok   store-mind/infra/persistence/mysql`
+- `ok   store-mind/infra/retrieval`
+- `ok   store-mind/internal/bootstrap`
+
+## Recorded Deviations
+
+The implementation is structurally complete for this phase, with these intentional limitations still present:
+
+- Runtime bootstrap remains conservative.
+  - `internal/bootstrap.Build()` still constructs the fallback-safe service by default.
+  - Primary orchestrator dependency wiring is implemented through helper construction and covered by tests, but not enabled automatically in production bootstrap.
+- AI integration is test-only for now.
+  - `infra/ai/fake_client.go` provides deterministic fake analyzer and composer behavior.
+  - No real external LLM client is wired yet.
+- Retrieval is FAQ-first.
+  - `store_policy` retrieval currently reuses FAQ category mapping.
+  - Dedicated policy documents and `product_knowledge` sources are not implemented yet.
+- Logging is partial.
+  - Decision log persistence is supported when the repository implements the optional contract.
+  - Retrieval logs and answer logs are not implemented yet.

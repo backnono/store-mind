@@ -28,6 +28,13 @@ func (f fakeService) Chat(_ context.Context, req app.ChatRequest) (*app.ChatResp
 		Intent:    "product_location",
 		Answer:    "可口可乐在饮料区 B-02 货架",
 		Cards:     []app.ChatCard{{Type: "product", SKUID: 1001, Name: "可口可乐 500ml", Location: "饮料区 B-02 货架"}},
+		Meta: app.ChatResponseMeta{
+			Route:         "tool",
+			Confidence:    0.91,
+			RewriteQuery:  "可口可乐位置",
+			FallbackUsed:  false,
+			EvidenceCount: 2,
+		},
 	}, nil
 }
 
@@ -83,8 +90,26 @@ func TestCustomerQAChat(t *testing.T) {
 	if meta["request_id"] != "rid-chat" {
 		t.Fatalf("expected request_id rid-chat, got %v", meta["request_id"])
 	}
+	if meta["route"] != "tool" {
+		t.Fatalf("expected route tool, got %+v", meta)
+	}
+	if meta["confidence"] != 0.91 {
+		t.Fatalf("expected confidence 0.91, got %+v", meta)
+	}
+	if meta["rewrite_query"] != "可口可乐位置" {
+		t.Fatalf("expected rewrite_query, got %+v", meta)
+	}
+	if meta["fallback_used"] != false {
+		t.Fatalf("expected fallback_used false, got %+v", meta)
+	}
+	if resp["message_id"] != float64(2) {
+		t.Fatalf("expected message_id 2, got %+v", resp)
+	}
 	if resp["intent"] != "product_location" {
 		t.Fatalf("expected intent in response, got %+v", resp)
+	}
+	if resp["answer"] != "可口可乐在饮料区 B-02 货架" {
+		t.Fatalf("expected answer in response, got %+v", resp)
 	}
 	if resp["session_id"] != float64(7) {
 		t.Fatalf("expected reused session_id 7, got %+v", resp)

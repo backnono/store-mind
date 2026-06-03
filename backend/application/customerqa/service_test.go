@@ -102,6 +102,18 @@ func TestServiceChat(t *testing.T) {
 	if resp.SessionID == 0 || resp.MessageID == 0 {
 		t.Fatalf("expected persisted ids, got %+v", resp)
 	}
+	if resp.Answer == "" {
+		t.Fatalf("expected non-empty answer, got %+v", resp)
+	}
+	if resp.Meta.Route != RouteFallback {
+		t.Fatalf("expected fallback route metadata, got %+v", resp.Meta)
+	}
+	if !resp.Meta.FallbackUsed {
+		t.Fatalf("expected fallback_used true, got %+v", resp.Meta)
+	}
+	if resp.Meta.Confidence != 0.95 {
+		t.Fatalf("expected confidence 0.95, got %+v", resp.Meta)
+	}
 	if resp.Intent != "product_location" {
 		t.Fatalf("expected product_location intent, got %s", resp.Intent)
 	}
@@ -119,6 +131,84 @@ func TestServiceChat(t *testing.T) {
 	}
 	if len(repo.messages) != 2 || repo.messages[1].Role != "assistant" {
 		t.Fatalf("expected assistant message to be persisted, got %+v", repo.messages)
+	}
+}
+
+func TestServiceChatFallbackBehaviorCoverage(t *testing.T) {
+	tests := []struct {
+		name           string
+		repo           domain.Repository
+		message        string
+		wantIntent     string
+		wantAnswerPart string
+		wantCards      int
+		wantHandoff    bool
+	}{
+		{
+			name:           "inventory fallback",
+			repo:           &fakeRepoWithToolFailure{},
+			message:        "可乐还有吗",
+			wantIntent:     "inventory",
+			wantAnswerPart: "暂时无法查询库存信息",
+		},
+		{
+			name:           "promotion fallback",
+			repo:           &fakeRepoWithPromotionFailure{},
+			message:        "今天有什么优惠",
+			wantIntent:     "promotion",
+			wantAnswerPart: "暂时无法查询活动信息",
+		},
+		{
+			name:           "faq fallback",
+			repo:           &fakeRepoWithFAQFailure{},
+			message:        "怎么付款",
+			wantIntent:     "faq",
+			wantAnswerPart: "暂时无法查询门店规则",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewService(tt.repo, fakeLogger{})
+			resp, err := svc.Chat(context.Background(), ChatRequest{RequestID: "r-fallback", StoreID: 1, Channel: "miniapp", Message: tt.message})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if resp.Intent != tt.wantIntent {
+				t.Fatalf("expected intent %s, got %s", tt.wantIntent, resp.Intent)
+			}
+			if !strings.Contains(resp.Answer, tt.wantAnswerPart) {
+				t.Fatalf("expected answer containing %q, got %q", tt.wantAnswerPart, resp.Answer)
+			}
+			if len(resp.Cards) != tt.wantCards {
+				t.Fatalf("expected %d cards, got %+v", tt.wantCards, resp.Cards)
+			}
+			if resp.HandoffRequired != tt.wantHandoff {
+				t.Fatalf("expected handoff %v, got %v", tt.wantHandoff, resp.HandoffRequired)
+			}
+			if resp.SessionID == 0 || resp.MessageID == 0 {
+				t.Fatalf("expected persisted ids on fallback, got %+v", resp)
+			}
+		})
+	}
+}
+
+func TestServiceChatPersistsDecisionLogWhenSupported(t *testing.T) {
+	repo := &fakeRepoWithDecisionLog{}
+	svc := NewService(repo, fakeLogger{})
+
+	resp, err := svc.Chat(context.Background(), ChatRequest{RequestID: "r-log", StoreID: 1, Channel: "miniapp", Message: "怎么付款"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Intent != "faq" {
+		t.Fatalf("expected faq intent, got %+v", resp)
+	}
+	if len(repo.decisionLogs) != 1 {
+		t.Fatalf("expected one decision log, got %+v", repo.decisionLogs)
+	}
+	if repo.decisionLogs[0].Intent != "faq" || repo.decisionLogs[0].Route != RouteFallback {
+		t.Fatalf("unexpected decision log: %+v", repo.decisionLogs[0])
 	}
 }
 
@@ -345,4 +435,31 @@ type fakeRepoWithToolFailure struct {
 
 func (f *fakeRepoWithToolFailure) GetProductLocation(_ context.Context, storeID, productID int64) (*domain.ProductLocation, error) {
 	return nil, errors.New("db timeout")
+}
+
+type fakeRepoWithPromotionFailure struct {
+	fakeRepo
+}
+
+func (f *fakeRepoWithPromotionFailure) ListActivePromotions(_ context.Context, storeID int64, now time.Time, limit int) ([]domain.Promotion, error) {
+	return nil, errors.New("db timeout")
+}
+
+type fakeRepoWithFAQFailure struct {
+	fakeRepo
+}
+
+func (f *fakeRepoWithFAQFailure) SearchFAQ(_ context.Context, storeID int64, query string, limit int) ([]domain.FAQ, error) {
+	return nil, errors.New("db timeout")
+}
+
+type fakeRepoWithDecisionLog struct {
+	fakeRepo
+	decisionLogs []domain.ChatDecisionLog
+}
+
+func (f *fakeRepoWithDecisionLog) CreateDecisionLog(_ context.Context, log *domain.ChatDecisionLog) (*domain.ChatDecisionLog, error) {
+	log.ID = int64(len(f.decisionLogs) + 1)
+	f.decisionLogs = append(f.decisionLogs, *log)
+	return log, nil
 }

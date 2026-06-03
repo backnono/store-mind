@@ -304,3 +304,18 @@ Improve hybrid routing and observability:
 Implement the `single backend service + orchestrator + replaceable adapters` approach.
 
 This keeps the current deployment model, reuses the existing tool-backed business logic, and creates a controlled path to LLM + RAG without losing auditability or rollback safety.
+
+## Implemented Limitations
+
+The current codebase now matches the orchestration structure above, with these explicit v1 limitations:
+
+- `backend/internal/bootstrap.Build()` still defaults to fallback-safe service wiring in runtime.
+  - Primary orchestrator wiring exists and is test-covered, but production bootstrap does not yet auto-enable analyzer/composer/retriever dependencies.
+- `backend/infra/ai` currently provides deterministic fake analyzer and composer adapters for tests.
+  - A real OpenAI-compatible client is still pending.
+- `backend/infra/retrieval/mysql_retriever.go` is FAQ-first.
+  - `store_policy` is approximated from FAQ categories such as `payment`, `refund`, `store_hours`, and `customer_service`.
+  - Dedicated `product_knowledge` persistence and retrieval are not implemented yet.
+- Observability is partial.
+  - Decision logging is supported as an optional repository capability.
+  - Retrieval logs and answer logs described in this design are not persisted yet.

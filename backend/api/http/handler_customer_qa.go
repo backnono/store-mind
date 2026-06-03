@@ -25,11 +25,11 @@ func NewCustomerQAHandler(svc app.Service, log *zap.Logger) *CustomerQAHandler {
 }
 
 type chatRequest struct {
-	StoreID int64  `json:"store_id"`
-	SessionID int64 `json:"session_id"`
-	UserID  *int64 `json:"user_id"`
-	Channel string `json:"channel"`
-	Message string `json:"message"`
+	StoreID   int64  `json:"store_id"`
+	SessionID int64  `json:"session_id"`
+	UserID    *int64 `json:"user_id"`
+	Channel   string `json:"channel"`
+	Message   string `json:"message"`
 }
 
 func (h *CustomerQAHandler) Chat(c *gin.Context) {
@@ -41,8 +41,23 @@ func (h *CustomerQAHandler) Chat(c *gin.Context) {
 		return
 	}
 
-	h.log.Info("chat_request", zap.String("request_id", rid), zap.Int64("store_id", req.StoreID), zap.String("channel", req.Channel))
-	resp, err := h.svc.Chat(c.Request.Context(), app.ChatRequest{RequestID: rid, StoreID: req.StoreID, SessionID: req.SessionID, UserID: req.UserID, Channel: req.Channel, Message: req.Message})
+	h.log.Info(
+		"chat_request",
+		zap.String("request_id", rid),
+		zap.Int64("store_id", req.StoreID),
+		zap.String("channel", req.Channel),
+	)
+	resp, err := h.svc.Chat(
+		c.Request.Context(),
+		app.ChatRequest{
+			RequestID: rid,
+			StoreID:   req.StoreID,
+			SessionID: req.SessionID,
+			UserID:    req.UserID,
+			Channel:   req.Channel,
+			Message:   req.Message,
+		},
+	)
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidArgument) {
 			h.log.Warn("chat_invalid_argument", zap.String("request_id", rid), zap.Error(err))
@@ -54,18 +69,30 @@ func (h *CustomerQAHandler) Chat(c *gin.Context) {
 		return
 	}
 
-	h.log.Info("chat_success", zap.String("request_id", rid), zap.Int64("session_id", resp.SessionID), zap.Int64("message_id", resp.MessageID))
-	c.JSON(http.StatusOK, gin.H{
-		"session_id":       resp.SessionID,
-		"message_id":       resp.MessageID,
-		"intent":           resp.Intent,
-		"answer":           resp.Answer,
-		"cards":            resp.Cards,
-		"handoff_required": resp.HandoffRequired,
-		"meta": gin.H{
-			"request_id": rid,
+	h.log.Info(
+		"chat_success",
+		zap.String("request_id", rid),
+		zap.Int64("session_id", resp.SessionID),
+		zap.Int64("message_id", resp.MessageID),
+	)
+	c.JSON(
+		http.StatusOK, gin.H{
+			"session_id":       resp.SessionID,
+			"message_id":       resp.MessageID,
+			"intent":           resp.Intent,
+			"answer":           resp.Answer,
+			"cards":            resp.Cards,
+			"handoff_required": resp.HandoffRequired,
+			"meta": gin.H{
+				"request_id":     rid,
+				"route":          resp.Meta.Route,
+				"confidence":     resp.Meta.Confidence,
+				"rewrite_query":  resp.Meta.RewriteQuery,
+				"fallback_used":  resp.Meta.FallbackUsed,
+				"evidence_count": resp.Meta.EvidenceCount,
+			},
 		},
-	})
+	)
 }
 
 func (h *CustomerQAHandler) SearchFAQ(c *gin.Context) {
@@ -84,7 +111,10 @@ func (h *CustomerQAHandler) SearchFAQ(c *gin.Context) {
 		}
 	}
 
-	faqs, err := h.svc.SearchFAQ(c.Request.Context(), app.FAQSearchRequest{RequestID: rid, StoreID: storeID, Query: query, Limit: limit})
+	faqs, err := h.svc.SearchFAQ(
+		c.Request.Context(),
+		app.FAQSearchRequest{RequestID: rid, StoreID: storeID, Query: query, Limit: limit},
+	)
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidArgument) {
 			h.log.Warn("faq_invalid_argument", zap.String("request_id", rid), zap.Error(err))
@@ -96,13 +126,20 @@ func (h *CustomerQAHandler) SearchFAQ(c *gin.Context) {
 		return
 	}
 
-	h.log.Info("faq_search_success", zap.String("request_id", rid), zap.Int64("store_id", storeID), zap.Int("count", len(faqs)))
-	c.JSON(http.StatusOK, gin.H{
-		"items": faqs,
-		"meta": gin.H{
-			"request_id": rid,
+	h.log.Info(
+		"faq_search_success",
+		zap.String("request_id", rid),
+		zap.Int64("store_id", storeID),
+		zap.Int("count", len(faqs)),
+	)
+	c.JSON(
+		http.StatusOK, gin.H{
+			"items": faqs,
+			"meta": gin.H{
+				"request_id": rid,
+			},
 		},
-	})
+	)
 }
 
 func (h *CustomerQAHandler) SearchProducts(c *gin.Context) {
@@ -116,7 +153,10 @@ func (h *CustomerQAHandler) SearchProducts(c *gin.Context) {
 	query := c.Query("q")
 	limit := parseLimit(c, 10)
 
-	items, err := h.svc.SearchProducts(c.Request.Context(), app.ProductSearchRequest{RequestID: rid, StoreID: storeID, Query: query, Limit: limit})
+	items, err := h.svc.SearchProducts(
+		c.Request.Context(),
+		app.ProductSearchRequest{RequestID: rid, StoreID: storeID, Query: query, Limit: limit},
+	)
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidArgument) {
 			h.log.Warn("product_search_invalid_argument", zap.String("request_id", rid), zap.Error(err))
@@ -128,12 +168,14 @@ func (h *CustomerQAHandler) SearchProducts(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"items": items,
-		"meta": gin.H{
-			"request_id": rid,
+	c.JSON(
+		http.StatusOK, gin.H{
+			"items": items,
+			"meta": gin.H{
+				"request_id": rid,
+			},
 		},
-	})
+	)
 }
 
 func (h *CustomerQAHandler) GetProductLocation(c *gin.Context) {
@@ -151,7 +193,10 @@ func (h *CustomerQAHandler) GetProductLocation(c *gin.Context) {
 		return
 	}
 
-	item, err := h.svc.GetProductLocation(c.Request.Context(), app.ProductLocationRequest{RequestID: rid, StoreID: storeID, ProductID: productID})
+	item, err := h.svc.GetProductLocation(
+		c.Request.Context(),
+		app.ProductLocationRequest{RequestID: rid, StoreID: storeID, ProductID: productID},
+	)
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidArgument) {
 			h.log.Warn("product_location_invalid_argument", zap.String("request_id", rid), zap.Error(err))
@@ -186,7 +231,10 @@ func (h *CustomerQAHandler) GetInventory(c *gin.Context) {
 		return
 	}
 
-	item, err := h.svc.GetInventory(c.Request.Context(), app.InventoryRequest{RequestID: rid, StoreID: storeID, SKUID: skuID})
+	item, err := h.svc.GetInventory(
+		c.Request.Context(),
+		app.InventoryRequest{RequestID: rid, StoreID: storeID, SKUID: skuID},
+	)
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidArgument) {
 			h.log.Warn("inventory_invalid_argument", zap.String("request_id", rid), zap.Error(err))
@@ -216,7 +264,10 @@ func (h *CustomerQAHandler) ListActivePromotions(c *gin.Context) {
 	}
 	limit := parseLimit(c, 10)
 
-	items, err := h.svc.ListActivePromotions(c.Request.Context(), app.PromotionListRequest{RequestID: rid, StoreID: storeID, Limit: limit})
+	items, err := h.svc.ListActivePromotions(
+		c.Request.Context(),
+		app.PromotionListRequest{RequestID: rid, StoreID: storeID, Limit: limit},
+	)
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidArgument) {
 			h.log.Warn("promotion_invalid_argument", zap.String("request_id", rid), zap.Error(err))
@@ -228,12 +279,14 @@ func (h *CustomerQAHandler) ListActivePromotions(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"items": items,
-		"meta": gin.H{
-			"request_id": rid,
+	c.JSON(
+		http.StatusOK, gin.H{
+			"items": items,
+			"meta": gin.H{
+				"request_id": rid,
+			},
 		},
-	})
+	)
 }
 
 func (h *CustomerQAHandler) ListSessions(c *gin.Context) {
@@ -244,7 +297,10 @@ func (h *CustomerQAHandler) ListSessions(c *gin.Context) {
 		return
 	}
 	limit := parseLimit(c, 20)
-	items, err := h.svc.ListSessions(c.Request.Context(), app.SessionListRequest{RequestID: rid, StoreID: storeID, Limit: limit})
+	items, err := h.svc.ListSessions(
+		c.Request.Context(),
+		app.SessionListRequest{RequestID: rid, StoreID: storeID, Limit: limit},
+	)
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidArgument) {
 			writeError(c, http.StatusBadRequest, "invalid_argument", "store_id is required")
@@ -253,10 +309,12 @@ func (h *CustomerQAHandler) ListSessions(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"items": items,
-		"meta": gin.H{"request_id": rid},
-	})
+	c.JSON(
+		http.StatusOK, gin.H{
+			"items": items,
+			"meta":  gin.H{"request_id": rid},
+		},
+	)
 }
 
 func (h *CustomerQAHandler) ListToolCalls(c *gin.Context) {
@@ -267,7 +325,10 @@ func (h *CustomerQAHandler) ListToolCalls(c *gin.Context) {
 		return
 	}
 	limit := parseLimit(c, 20)
-	items, err := h.svc.ListToolCalls(c.Request.Context(), app.ToolCallListRequest{RequestID: rid, SessionID: sessionID, Limit: limit})
+	items, err := h.svc.ListToolCalls(
+		c.Request.Context(),
+		app.ToolCallListRequest{RequestID: rid, SessionID: sessionID, Limit: limit},
+	)
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidArgument) {
 			writeError(c, http.StatusBadRequest, "invalid_argument", "session_id is required")
@@ -276,10 +337,12 @@ func (h *CustomerQAHandler) ListToolCalls(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"items": items,
-		"meta": gin.H{"request_id": rid},
-	})
+	c.JSON(
+		http.StatusOK, gin.H{
+			"items": items,
+			"meta":  gin.H{"request_id": rid},
+		},
+	)
 }
 
 func parseStoreID(c *gin.Context) (int64, bool) {
