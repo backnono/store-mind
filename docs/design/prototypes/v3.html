@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<title>小王 · 数字店员 — 真实产品结构原型</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+  body {
+    display: flex; align-items: center; justify-content: center; gap: 48px;
+    min-height: 100vh; padding: 32px;
+    background: oklch(14% 0.008 80);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    color: oklch(92% 0.003 85);
+  }
+  .phone {
+    width: 390px; max-width: 100vw; min-width: 390px;
+    height: 844px; max-height: calc(100vh - 64px);
+    background: oklch(17% 0.006 80);
+    border-radius: 44px; position: relative; overflow: hidden;
+    box-shadow: 0 0 0 2px oklch(25% 0.006 85), 0 0 0 6px oklch(20% 0.008 85), 0 0 0 8px oklch(28% 0.004 85), 0 24px 80px oklch(0% 0 0 / 0.6);
+    display: flex; flex-direction: column;
+  }
+  .phone-notch {
+    height: 54px; flex-shrink: 0;
+    display: flex; align-items: flex-end; justify-content: center; padding-bottom: 8px; position: relative;
+  }
+  .phone-notch .time {
+    font-size: 0.875rem; font-weight: 600; color: oklch(92% 0.003 85); letter-spacing: 0.02em;
+  }
+  .status-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: oklch(72% 0.14 65); position: absolute; right: 32px; top: 18px;
+  }
+  .phone-body { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* ═══════════ Tab Bar ═══════════ */
+  .tab-bar {
+    flex-shrink: 0; display: flex;
+    background: oklch(17% 0.006 80);
+    border-top: 1px solid oklch(23% 0.005 85);
+    padding: 6px 0 20px;
+  }
+  .tab-item {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+    cursor: pointer; padding: 4px 0;
+    color: oklch(50% 0.005 85); font-size: 0.625rem; font-weight: 500;
+    transition: color 0.15s ease; font-family: inherit; border: none; background: none;
+  }
+  .tab-item.active { color: oklch(75% 0.12 65); }
+  .tab-icon { font-size: 1.2rem; }
+  .tab-item.wang .tab-icon {
+    width: 40px; height: 40px; border-radius: 50%;
+    background: linear-gradient(135deg, oklch(58% 0.16 70), oklch(48% 0.18 85));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.2rem; font-weight: 700; color: oklch(17% 0.006 80);
+    box-shadow: 0 2px 10px oklch(58% 0.16 70 / 0.25);
+    margin-top: -8px;
+  }
+
+  /* ═══════════ Pages Container ═══════════ */
+  .pages { flex: 1; position: relative; overflow: hidden; }
+  .page {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.25s ease;
+    overflow-y: auto; overflow-x: hidden;
+  }
+  .page.active { opacity: 1; pointer-events: auto; }
+  .page::-webkit-scrollbar { width: 3px; }
+  .page::-webkit-scrollbar-thumb { background: oklch(30% 0.005 85); border-radius: 3px; }
+
+  /* ═══════════ Page 1: 门店卡片（首页） ═══════════ */
+  .store-page { padding: 20px 16px 32px; }
+  .store-hero { text-align: center; padding: 24px 0 8px; }
+  .store-icon {
+    width: 64px; height: 64px; border-radius: 20px;
+    background: linear-gradient(135deg, oklch(55% 0.08 85), oklch(45% 0.1 80));
+    margin: 0 auto 14px; display: flex; align-items: center; justify-content: center;
+    font-size: 2rem; box-shadow: 0 8px 24px oklch(45% 0.1 80 / 0.25);
+  }
+  .store-name { font-size: 1.35rem; font-weight: 700; color: oklch(92% 0.003 85); }
+  .store-addr { font-size: 0.75rem; color: oklch(58% 0.005 85); margin-top: 4px; }
+
+  .greeting-card {
+    margin: 20px 0;
+    background: oklch(22% 0.008 75);
+    border-radius: 20px; padding: 20px;
+    border: 1px solid oklch(28% 0.015 70); position: relative; overflow: hidden;
+  }
+  .greeting-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, oklch(60% 0.16 70), oklch(53% 0.18 85), oklch(60% 0.16 70));
+  }
+  .greeting-header { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .greeting-avatar {
+    width: 46px; height: 46px; border-radius: 50%;
+    background: linear-gradient(135deg, oklch(62% 0.16 70), oklch(55% 0.18 80));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.3rem; font-weight: 700; color: oklch(17% 0.006 80);
+    box-shadow: 0 4px 14px oklch(62% 0.16 70 / 0.3);
+  }
+  .greeting-name-row { display: flex; align-items: center; gap: 8px; }
+  .greeting-name { font-size: 1.1rem; font-weight: 700; color: oklch(92% 0.003 85); }
+  .greeting-live { font-size: 0.675rem; color: oklch(65% 0.16 160); display: flex; align-items: center; gap: 4px; }
+  @keyframes pulse-live { 0%,100%{opacity:1} 50%{opacity:0.35} }
+  .live-dot-sm { width: 6px; height: 6px; border-radius: 50%; background: oklch(65% 0.18 160); animation: pulse-live 2s ease-in-out infinite; }
+  .greeting-sub { font-size: 0.75rem; color: oklch(60% 0.005 85); margin-top: 2px; }
+  .greeting-msg { font-size: 0.9375rem; line-height: 1.6; color: oklch(85% 0.005 85); margin-bottom: 18px; }
+  .greeting-cta { display: flex; gap: 10px; }
+  .cta-btn {
+    flex: 1; padding: 12px 0; border-radius: 14px; font-size: 0.9375rem;
+    font-weight: 600; cursor: pointer; font-family: inherit; border: none;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .cta-btn:active { transform: scale(0.96); }
+  .cta-primary {
+    background: linear-gradient(135deg, oklch(58% 0.16 70), oklch(48% 0.18 85));
+    color: oklch(17% 0.006 80); box-shadow: 0 4px 16px oklch(58% 0.16 70 / 0.3);
+  }
+  .cta-secondary { background: oklch(26% 0.008 80); color: oklch(85% 0.005 85); border: 1px solid oklch(32% 0.006 85); }
+
+  .section-label { font-size: 0.75rem; font-weight: 600; color: oklch(55% 0.005 85); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+  .store-highlights { display: flex; flex-direction: column; gap: 10px; }
+  .highlight-item {
+    display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 14px;
+    background: oklch(21% 0.006 80); border: 1px solid oklch(26% 0.006 85);
+    cursor: pointer; transition: background 0.15s ease;
+  }
+  .highlight-item:active { background: oklch(25% 0.008 80); }
+  .highlight-icon { font-size: 1.5rem; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; background: oklch(26% 0.01 75); border-radius: 12px; flex-shrink: 0; }
+  .highlight-info { flex: 1; min-width: 0; }
+  .highlight-title { font-size: 0.875rem; font-weight: 600; color: oklch(90% 0.003 85); }
+  .highlight-desc { font-size: 0.725rem; color: oklch(60% 0.005 85); margin-top: 2px; }
+  .highlight-arrow { color: oklch(45% 0.005 85); font-size: 1.1rem; }
+
+  /* ═══════════ Chat Page ═══════════ */
+  .chat-shell { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .chat-header {
+    flex-shrink: 0; padding: 12px 16px; display: flex; align-items: center; gap: 12px;
+    border-bottom: 1px solid oklch(23% 0.005 85);
+    background: oklch(17% 0.006 80); z-index: 10;
+  }
+  .clerk-avatar {
+    width: 40px; height: 40px; border-radius: 50%;
+    background: linear-gradient(135deg, oklch(62% 0.16 70), oklch(55% 0.18 80));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.2rem; font-weight: 700; color: oklch(17% 0.006 80);
+    box-shadow: 0 2px 8px oklch(62% 0.16 70 / 0.3); flex-shrink: 0;
+  }
+  .header-info { flex: 1; min-width: 0; }
+  .header-name { font-size: 1rem; font-weight: 600; color: oklch(92% 0.003 85); }
+  .header-sub { font-size: 0.75rem; color: oklch(72% 0.12 65); display: flex; align-items: center; gap: 6px; }
+  .live-dot { width: 7px; height: 7px; border-radius: 50%; background: oklch(65% 0.18 160); animation: pulse-live 2s ease-in-out infinite; }
+  .header-actions { display: flex; gap: 8px; }
+  .header-btn {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: oklch(24% 0.006 85); border: none; color: oklch(75% 0.005 85);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; font-size: 1rem; transition: background 0.15s ease;
+  }
+  .header-btn:hover { background: oklch(30% 0.006 85); }
+
+  /* ═══════════ Zone Banner ═══════════ */
+  .zone-context-banner {
+    margin: 4px 12px; padding: 10px 14px;
+    background: oklch(22% 0.015 70 / 0.5); border: 1px solid oklch(30% 0.03 70);
+    border-radius: 14px; display: flex; align-items: center; gap: 10px;
+    font-size: 0.8rem; flex-shrink: 0;
+  }
+  .zone-icon { width: 32px; height: 32px; border-radius: 10px; background: oklch(32% 0.04 65 / 0.3); display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; }
+  .zone-info { flex: 1; min-width: 0; }
+  .zone-label { font-weight: 600; color: oklch(85% 0.005 85); }
+  .zone-desc { font-size: 0.7rem; color: oklch(62% 0.008 85); margin-top: 1px; }
+
+  /* ═══════════ Session State Bar ═══════════ */
+  .session-state {
+    flex-shrink: 0; padding: 8px 16px; display: flex; align-items: center; gap: 8px;
+    background: oklch(20% 0.01 80); border-bottom: 1px solid oklch(25% 0.006 85);
+    font-size: 0.75rem; color: oklch(68% 0.008 85);
+  }
+  .state-pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 10px; border-radius: 20px; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.02em;
+  }
+  .state-pill.product-focus { background: oklch(30% 0.06 65 / 0.2); color: oklch(75% 0.12 65); }
+  .state-sep { color: oklch(40% 0.005 85); }
+  .state-entity { color: oklch(85% 0.01 85); font-weight: 500; }
+
+  /* ═══════════ Messages ═══════════ */
+  .messages {
+    flex: 1; overflow-y: auto; overflow-x: hidden;
+    padding: 16px 12px; display: flex; flex-direction: column; gap: 14px;
+    scroll-behavior: smooth;
+  }
+  .messages::-webkit-scrollbar { width: 3px; }
+  .messages::-webkit-scrollbar-thumb { background: oklch(30% 0.005 85); border-radius: 3px; }
+
+  .msg-row { display: flex; gap: 8px; max-width: 100%; }
+  .msg-row.user { justify-content: flex-end; }
+  .msg-row.clerk { justify-content: flex-start; }
+  .msg-avatar {
+    width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.65rem; font-weight: 700; margin-top: 2px;
+  }
+  .msg-row.user .msg-avatar { background: oklch(38% 0.01 85); color: oklch(80% 0.005 85); }
+  .msg-row.clerk .msg-avatar { background: linear-gradient(135deg, oklch(58% 0.16 70), oklch(50% 0.18 80)); color: oklch(17% 0.006 80); }
+
+  .msg-bubble {
+    max-width: 82%; padding: 10px 14px; border-radius: 18px;
+    font-size: 0.9375rem; line-height: 1.55; word-break: break-word;
+  }
+  .msg-row.user .msg-bubble { background: oklch(30% 0.01 85); color: oklch(92% 0.003 85); border-bottom-right-radius: 6px; }
+  .msg-row.clerk .msg-bubble { background: oklch(23% 0.006 85); color: oklch(92% 0.003 85); border-bottom-left-radius: 6px; }
+  .msg-time { font-size: 0.65rem; color: oklch(50% 0.005 85); margin-top: 3px; padding: 0 4px; }
+  .msg-row.user .msg-time { text-align: right; }
+  .msg-row.clerk .msg-time { text-align: left; padding-left: 36px; }
+
+  /* ═══════════ Icebreaker Chips ═══════════ */
+  .icebreaker-chips { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+  .icebreaker-chip {
+    display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 14px;
+    background: oklch(24% 0.008 75); border: 1px solid oklch(30% 0.008 85);
+    cursor: pointer; transition: all 0.15s ease;
+    font-size: 0.875rem; color: oklch(88% 0.005 85); font-weight: 500; font-family: inherit;
+  }
+  .icebreaker-chip:active { background: oklch(30% 0.01 75); border-color: oklch(45% 0.08 65); }
+  .icebreaker-chip-emoji { font-size: 1.3rem; width: 32px; text-align: center; flex-shrink: 0; }
+  .icebreaker-chip-text { flex: 1; text-align: left; }
+
+  /* ═══════════ Product Card ═══════════ */
+  .product-card {
+    margin-top: 10px; background: oklch(26% 0.008 75);
+    border-radius: 12px; overflow: hidden; border: 1px solid oklch(30% 0.006 85);
+  }
+  .product-card-header {
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+    border-bottom: 1px solid oklch(30% 0.006 85);
+  }
+  .product-img { width: 44px; height: 44px; border-radius: 8px; background: oklch(32% 0.02 80); display: flex; align-items: center; justify-content: center; font-size: 1.4rem; flex-shrink: 0; }
+  .product-main { flex: 1; min-width: 0; }
+  .product-name { font-size: 0.875rem; font-weight: 600; color: oklch(92% 0.003 85); }
+  .product-spec { font-size: 0.7rem; color: oklch(68% 0.005 85); }
+  .product-price { font-size: 0.95rem; font-weight: 700; color: oklch(75% 0.14 65); white-space: nowrap; }
+  .product-card-body { padding: 8px 12px 10px; }
+  .product-meta { display: flex; flex-wrap: wrap; gap: 6px; }
+  .product-tag { font-size: 0.675rem; padding: 2px 8px; border-radius: 10px; font-weight: 500; }
+  .product-tag.location { background: oklch(35% 0.03 65 / 0.25); color: oklch(78% 0.08 65); }
+  .product-tag.stock { background: oklch(35% 0.04 160 / 0.2); color: oklch(68% 0.1 160); }
+  .product-tag.promo { background: oklch(35% 0.06 40 / 0.2); color: oklch(72% 0.12 50); }
+
+  /* ═══════════ Cred Badge ═══════════ */
+  .cred-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: 20px; font-size: 0.7rem; font-weight: 600; margin-top: 6px;
+  }
+  .cred-medium { background: oklch(35% 0.06 90 / 0.25); color: oklch(75% 0.12 90); }
+  .cred-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .cred-medium .cred-dot { background: oklch(78% 0.14 90); }
+
+  /* ═══════════ Guidance Chips ═══════════ */
+  .guidance-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .guidance-chip {
+    font-size: 0.75rem; padding: 6px 14px; border-radius: 20px;
+    border: 1px solid oklch(30% 0.04 65); background: transparent;
+    color: oklch(78% 0.08 65); cursor: pointer; font-weight: 500;
+    transition: all 0.15s ease; white-space: nowrap; font-family: inherit;
+  }
+  .guidance-chip:active { background: oklch(35% 0.05 65 / 0.4); }
+
+  /* ═══════════ Feedback ═══════════ */
+  .feedback-row { display: flex; gap: 4px; margin-top: 6px; opacity: 0; transition: opacity 0.3s ease; }
+  .msg-row.clerk:hover .feedback-row { opacity: 1; }
+  .feedback-btn {
+    width: 26px; height: 26px; border-radius: 50%;
+    border: 1px solid oklch(35% 0.005 85); background: transparent;
+    color: oklch(55% 0.005 85); font-size: 0.75rem; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s ease;
+  }
+  .feedback-btn:active, .feedback-btn.active-helpful {
+    background: oklch(35% 0.05 155 / 0.3); border-color: oklch(55% 0.12 155); color: oklch(65% 0.14 155);
+  }
+
+  /* ═══════════ Time / Context Bridge ═══════════ */
+  .time-divider { text-align: center; font-size: 0.7rem; color: oklch(45% 0.005 85); padding: 4px 0; }
+  .context-bridge { text-align: center; padding: 6px 16px; margin: 0 12px; font-size: 0.675rem; color: oklch(55% 0.005 85); background: oklch(22% 0.006 85); border-radius: 12px; }
+  .context-bridge span { color: oklch(75% 0.01 85); font-weight: 500; }
+
+  /* ═══════════ Cart ═══════════ */
+  .cart-summary { margin-top: 10px; background: oklch(26% 0.008 75); border-radius: 12px; padding: 10px 12px; border: 1px solid oklch(30% 0.006 85); }
+  .cart-item-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; font-size: 0.8rem; }
+  .cart-item-row:not(:last-child) { border-bottom: 1px solid oklch(30% 0.005 85); }
+  .cart-total { display: flex; justify-content: space-between; align-items: center; padding-top: 8px; margin-top: 6px; border-top: 1px solid oklch(32% 0.006 85); font-weight: 700; font-size: 0.9rem; }
+  .cart-total-price { color: oklch(75% 0.14 65); font-size: 1rem; }
+
+  /* ═══════════ Composer ═══════════ */
+  .composer {
+    flex-shrink: 0; padding: 10px 12px 20px;
+    background: oklch(17% 0.006 80); border-top: 1px solid oklch(23% 0.005 85);
+    display: flex; gap: 8px; align-items: flex-end;
+  }
+  .composer-input-wrap {
+    flex: 1; background: oklch(23% 0.006 85); border-radius: 24px; padding: 10px 16px;
+    display: flex; align-items: center; gap: 8px;
+    border: 1px solid oklch(28% 0.006 85); transition: border-color 0.2s ease;
+  }
+  .composer-input-wrap:focus-within { border-color: oklch(55% 0.1 65); }
+  .composer-input {
+    flex: 1; background: transparent; border: none; outline: none;
+    font-size: 0.9375rem; color: oklch(92% 0.003 85); font-family: inherit;
+  }
+  .composer-input::placeholder { color: oklch(50% 0.005 85); }
+  .composer-send {
+    width: 40px; height: 40px; border-radius: 50%;
+    background: linear-gradient(135deg, oklch(58% 0.16 70), oklch(50% 0.18 80));
+    border: none; color: oklch(17% 0.006 80); font-size: 1.2rem;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; flex-shrink: 0;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    box-shadow: 0 2px 10px oklch(58% 0.16 70 / 0.25);
+  }
+  .composer-send:active { transform: scale(0.93); }
+
+  /* ═══════════ Typing ═══════════ */
+  .typing-dots { display: flex; gap: 3px; padding: 4px 0; }
+  .typing-dots span { width: 5px; height: 5px; border-radius: 50%; background: oklch(55% 0.005 85); animation: dot-bounce 1.4s ease-in-out infinite; }
+  .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+  .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes dot-bounce { 0%,80%,100%{transform:scale(0.7);opacity:0.4} 40%{transform:scale(1);opacity:1} }
+
+  /* ═══════════ Empty States for 购物/订单/我的 ═══════════ */
+  .empty-page {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 12px; padding: 40px;
+  }
+  .empty-icon { font-size: 3rem; opacity: 0.5; }
+  .empty-title { font-size: 1rem; font-weight: 600; color: oklch(75% 0.005 85); }
+  .empty-desc { font-size: 0.75rem; color: oklch(55% 0.005 85); text-align: center; }
+
+  /* ═══════════ Side Panel ═══════════ */
+  .side-panel {
+    width: 320px; max-height: 80vh; overflow-y: auto; padding: 24px;
+    border-radius: 20px; background: oklch(20% 0.008 80);
+    border: 1px solid oklch(28% 0.006 85);
+    font-size: 0.8125rem; line-height: 1.7; color: oklch(78% 0.005 85);
+  }
+  .side-panel h3 {
+    font-size: 0.9rem; font-weight: 700; color: oklch(85% 0.005 85);
+    margin-bottom: 6px; margin-top: 18px;
+  }
+  .side-panel h3:first-child { margin-top: 0; }
+  .side-panel ul { padding-left: 16px; margin: 4px 0 8px; }
+  .side-panel li { margin-bottom: 2px; }
+  .side-panel .tag {
+    display: inline-block; font-size: 0.65rem; padding: 1px 8px; border-radius: 8px;
+    font-weight: 600; margin-right: 4px;
+  }
+  .tag.h { background: oklch(32% 0.06 65 / 0.3); color: oklch(78% 0.1 65); }
+  .tag.w { background: oklch(32% 0.06 180 / 0.3); color: oklch(68% 0.1 180); }
+  .side-panel::-webkit-scrollbar { width: 3px; }
+  .side-panel::-webkit-scrollbar-thumb { background: oklch(30% 0.005 85); border-radius: 3px; }
+
+  @media (max-width: 820px) { body { flex-direction: column; padding: 16px; } .side-panel { width: 100%; max-height: none; } .phone { min-width: auto; } }
+</style>
+</head>
+<body>
+
+<div class="phone">
+  <div class="phone-notch">
+    <span class="time">20:18</span>
+    <div class="status-dot"></div>
+  </div>
+  <div class="phone-body">
+    <div class="pages" id="pages">
+      <!-- ═══════════ PAGE: 首页（门店卡片） ═══════════ -->
+      <div class="page active" data-page="home" id="pageHome">
+        <div class="store-page">
+          <div class="store-hero">
+            <div class="store-icon">🏪</div>
+            <div class="store-name">阳光便利店 No.3</div>
+            <div class="store-addr">建国路 128 号 · 24 小时无人店</div>
+          </div>
+          <div class="greeting-card">
+            <div class="greeting-header">
+              <div class="greeting-avatar">王</div>
+              <div>
+                <div class="greeting-name-row">
+                  <span class="greeting-name">小王</span>
+                  <span class="greeting-live"><span class="live-dot-sm"></span>在线</span>
+                </div>
+                <div class="greeting-sub">您的数字店员</div>
+              </div>
+            </div>
+            <div class="greeting-msg">
+              欢迎光临！今天<b>饮料区第二件半价</b>，零食区上了几款新品。想找什么随时问我。
+            </div>
+            <div class="greeting-cta">
+              <button class="cta-btn cta-primary" id="btnChatWang">💬 问小王</button>
+              <button class="cta-btn cta-secondary">📱 扫码购物</button>
+            </div>
+          </div>
+          <div class="section-label">今日推荐</div>
+          <div class="store-highlights">
+            <div class="highlight-item" data-chat-context="promo">
+              <div class="highlight-icon">🏷</div>
+              <div class="highlight-info">
+                <div class="highlight-title">饮料区第二件半价</div>
+                <div class="highlight-desc">可乐、雪碧、元气森林 · 截至今晚</div>
+              </div>
+              <div class="highlight-arrow">›</div>
+            </div>
+            <div class="highlight-item" data-chat-context="new">
+              <div class="highlight-icon">🆕</div>
+              <div class="highlight-info">
+                <div class="highlight-title">新品上架 · 巧克力布朗尼</div>
+                <div class="highlight-desc">零食区 A-03 · ¥12.90</div>
+              </div>
+              <div class="highlight-arrow">›</div>
+            </div>
+            <div class="highlight-item" data-chat-context="hot">
+              <div class="highlight-icon">🔥</div>
+              <div class="highlight-info">
+                <div class="highlight-title">今日热销 · 元气森林白桃味</div>
+                <div class="highlight-desc">低糖汽水 · 饮料区 B-03 · ¥5.00</div>
+              </div>
+              <div class="highlight-arrow">›</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════ PAGE: 购物 ═══════════ -->
+      <div class="page" data-page="shop" id="pageShop">
+        <div class="store-page">
+          <div class="empty-page">
+            <div class="empty-icon">🛒</div>
+            <div class="empty-title">购物车是空的</div>
+            <div class="empty-desc">扫码商品条码加入购物车</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════ PAGE: 小王（对话窗） ═══════════ -->
+      <div class="page" data-page="chat" id="pageChat">
+        <div class="chat-shell">
+          <div class="chat-header">
+            <div class="clerk-avatar">王</div>
+            <div class="header-info">
+              <div class="header-name">小王 · 数字店员</div>
+              <div class="header-sub"><span class="live-dot"></span>在线 · 阳光便利店 No.3</div>
+            </div>
+            <div class="header-actions">
+              <button class="header-btn" title="人工客服">👤</button>
+              <button class="header-btn" title="更多">⋯</button>
+            </div>
+          </div>
+
+          <!-- Dynamic context indicators, shown by JS -->
+          <div id="chatContextBanner" style="display:none;"></div>
+
+          <div class="messages" id="chatMessages">
+            <!-- Filled by JS based on context -->
+          </div>
+
+          <div class="composer">
+            <div class="composer-input-wrap">
+              <input type="text" class="composer-input" placeholder="问小王任何问题…" id="chatInput">
+            </div>
+            <button class="composer-send" id="chatSend">↑</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════ PAGE: 订单 ═══════════ -->
+      <div class="page" data-page="orders" id="pageOrders">
+        <div class="store-page">
+          <div class="empty-page">
+            <div class="empty-icon">📋</div>
+            <div class="empty-title">暂无订单</div>
+            <div class="empty-desc">完成购物后这里会显示订单记录</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════ PAGE: 我的 ═══════════ -->
+      <div class="page" data-page="profile" id="pageProfile">
+        <div class="store-page">
+          <div class="empty-page">
+            <div class="empty-icon">👤</div>
+            <div class="empty-title">个人中心</div>
+            <div class="empty-desc">会员卡、积分、优惠券等</div>
+          </div>
+        </div>
+      </div>
+    </div><!-- /pages -->
+
+    <!-- ═══════════ TAB BAR ═══════════ -->
+    <div class="tab-bar">
+      <button class="tab-item active" data-tab="home">
+        <span class="tab-icon">🏪</span>首页
+      </button>
+      <button class="tab-item" data-tab="shop">
+        <span class="tab-icon">🛒</span>购物
+      </button>
+      <button class="tab-item wang" data-tab="chat" id="tabWang">
+        <span class="tab-icon">王</span>小王
+      </button>
+      <button class="tab-item" data-tab="orders">
+        <span class="tab-icon">📋</span>订单
+      </button>
+      <button class="tab-item" data-tab="profile">
+        <span class="tab-icon">👤</span>我的
+      </button>
+    </div>
+  </div><!-- /phone-body -->
+</div><!-- /phone -->
+
+<!-- ═══════════ Side Panel ═══════════ -->
+<div class="side-panel" id="sidePanel">
+  <h3>产品结构说明</h3>
+  <ul>
+    <li><b>底部 Tab 栏</b>：首页 | 购物 | 小王 | 订单 | 我的<br>→ 五个 Tab，用户只需记住「小王」就是聊天入口</li>
+    <li><b>首页 → 小王</b>：点击「问小王」或今日推荐，进入对话窗</li>
+    <li><b>小王聊天窗</b>：系统根据进入方式自动适配初始状态，用户只需开口问</li>
+  </ul>
+
+  <h3><span class="tag h">首页入口</span> 三种方式进入小王</h3>
+  <ul>
+    <li><b>点击「问小王」</b> → 空对话窗，主动破冰 + 预设问题</li>
+    <li><b>点击推荐商品</b> → 对话窗，自动带入该商品上下文</li>
+    <li><b>点击活动卡片</b> → 对话窗，自动展开活动详情</li>
+  </ul>
+
+  <h3><span class="tag w">货架入口</span> 扫码直入</h3>
+  <ul>
+    <li><b>扫货架 QR 码</b> → 对话窗，顶部显示当前区域，自动列出货架商品</li>
+    <li>用户无需选择模式，zone 上下文由 QR 参数自动携带</li>
+  </ul>
+
+  <h3>系统自动处理的三种初始状态</h3>
+  <ul>
+    <li><b>首次打开</b>：无上下文 → 主动破冰</li>
+    <li><b>货架扫码</b>：有 zone_id → 展示当前货架商品</li>
+    <li><b>恢复对话</b>：有历史会话 → Context Bridge 回顾</li>
+  </ul>
+</div>
+
+<script>
+  /* ═══════ Tab Navigation ═══════ */
+  const tabPages = { home:'pageHome', shop:'pageShop', chat:'pageChat', orders:'pageOrders', profile:'pageProfile' };
+  let currentTab = 'home';
+
+  function switchTab(tab) {
+    if (tab === currentTab) return;
+    // Hide all pages
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    // Show target
+    document.getElementById(tabPages[tab]).classList.add('active');
+    // Update tab bar
+    document.querySelectorAll('.tab-item').forEach(t => t.classList.remove('active'));
+    document.querySelector('[data-tab="'+tab+'"]').classList.add('active');
+    currentTab = tab;
+
+    // Scroll chat to bottom if switching to chat
+    if (tab === 'chat') {
+      const msgs = document.getElementById('chatMessages');
+      if (msgs) msgs.scrollTop = msgs.scrollHeight;
+    }
+  }
+
+  document.querySelectorAll('.tab-item').forEach(btn => {
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+  });
+
+  /* ═══════ Home → Chat entry points ═══════ */
+  // "问小王" button
+  document.getElementById('btnChatWang').addEventListener('click', () => {
+    renderChatContext('first_open');
+    switchTab('chat');
+  });
+
+  // Highlight items on home page
+  document.querySelectorAll('.highlight-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const ctx = item.dataset.chatContext;
+      if (ctx === 'promo') renderChatContext('promo');
+      else if (ctx === 'new') renderChatContext('product_detail');
+      else if (ctx === 'hot') renderChatContext('product_detail');
+      switchTab('chat');
+    });
+  });
+
+  /* ═══════ Chat Context Renderer ═══════ */
+  let activeChatContext = 'first_open';
+
+  function renderChatContext(context) {
+    activeChatContext = context;
+    const banner = document.getElementById('chatContextBanner');
+    const msgs = document.getElementById('chatMessages');
+    banner.style.display = 'none';
+    msgs.innerHTML = '';
+
+    if (context === 'first_open') {
+      // 首次破冰
+      msgs.innerHTML = `
+        <div class="msg-row clerk">
+          <div class="msg-avatar">王</div>
+          <div>
+            <div class="msg-bubble">
+              您好！我是<b>小王</b>，您身边的数字店员。<br><br>
+              店里的一切都可以问我：商品在哪儿、还有没有货、今天有什么活动、怎么付款……
+              <div class="icebreaker-chips">
+                <div class="icebreaker-chip" data-msg="薯片在哪里？">
+                  <span class="icebreaker-chip-emoji">📍</span>
+                  <span class="icebreaker-chip-text">薯片在哪里？</span>
+                </div>
+                <div class="icebreaker-chip" data-msg="今天有什么活动？">
+                  <span class="icebreaker-chip-emoji">🏷</span>
+                  <span class="icebreaker-chip-text">今天有什么活动？</span>
+                </div>
+                <div class="icebreaker-chip" data-msg="低糖饮料有哪些？">
+                  <span class="icebreaker-chip-emoji">🥤</span>
+                  <span class="icebreaker-chip-text">低糖饮料有哪些？</span>
+                </div>
+                <div class="icebreaker-chip" data-msg="怎么付款？">
+                  <span class="icebreaker-chip-emoji">💳</span>
+                  <span class="icebreaker-chip-text">怎么付款？</span>
+                </div>
+              </div>
+            </div>
+            <div class="feedback-row">
+              <button class="feedback-btn">👍</button>
+              <button class="feedback-btn">👎</button>
+            </div>
+          </div>
+        </div>`;
+      bindIcebreakerChips();
+    } else if (context === 'zone_scan') {
+      // 货架扫码
+      banner.style.display = 'block';
+      banner.className = 'zone-context-banner';
+      banner.innerHTML = `
+        <div class="zone-icon">📍</div>
+        <div class="zone-info">
+          <div class="zone-label">您当前在：饮料区 B-02</div>
+          <div class="zone-desc">可乐、雪碧、芬达、元气森林等</div>
+        </div>`;
+      msgs.innerHTML = `
+        <div class="msg-row clerk">
+          <div class="msg-avatar">王</div>
+          <div>
+            <div class="msg-bubble">
+              我看到您在<b>饮料区 B-02</b>，这个货架主要有：
+              <div class="product-card" style="margin-bottom:8px;">
+                <div class="product-card-header">
+                  <div class="product-img">🥤</div>
+                  <div class="product-main"><div class="product-name">可口可乐</div><div class="product-spec">500ml</div></div>
+                  <div class="product-price">¥3.50</div>
+                </div>
+                <div class="product-card-body">
+                  <div class="product-meta">
+                    <span class="product-tag stock">📦 库存充足</span>
+                    <span class="product-tag promo">🏷 第二件半价</span>
+                  </div>
+                </div>
+              </div>
+              <div class="product-card" style="margin-bottom:8px;">
+                <div class="product-card-header">
+                  <div class="product-img">🫧</div>
+                  <div class="product-main"><div class="product-name">雪碧</div><div class="product-spec">500ml</div></div>
+                  <div class="product-price">¥3.50</div>
+                </div>
+                <div class="product-card-body">
+                  <div class="product-meta"><span class="product-tag promo">🏷 第二件半价</span></div>
+                </div>
+              </div>
+              <div class="product-card">
+                <div class="product-card-header">
+                  <div class="product-img">🍑</div>
+                  <div class="product-main"><div class="product-name">元气森林 白桃味</div><div class="product-spec">480ml</div></div>
+                  <div class="product-price">¥5.00</div>
+                </div>
+                <div class="product-card-body">
+                  <div class="product-meta"><span class="product-tag stock">📦 库存充足</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="feedback-row">
+              <button class="feedback-btn">👍</button>
+              <button class="feedback-btn">👎</button>
+            </div>
+          </div>
+        </div>`;
+    } else if (context === 'promo') {
+      // 活动入口
+      msgs.innerHTML = `
+        <div class="msg-row clerk">
+          <div class="msg-avatar">王</div>
+          <div>
+            <div class="msg-bubble">
+              今天的活动是<b>饮料区第二件半价</b>，参与商品有：
+              <div class="product-card" style="margin-bottom:8px;">
+                <div class="product-card-header">
+                  <div class="product-img">🥤</div>
+                  <div class="product-main"><div class="product-name">可口可乐</div><div class="product-spec">500ml · ¥3.50</div></div>
+                </div>
+                <div class="product-card-body">
+                  <div class="product-meta"><span class="product-tag location">📍 B-02 货架</span></div>
+                </div>
+              </div>
+              <div class="product-card" style="margin-bottom:8px;">
+                <div class="product-card-header">
+                  <div class="product-img">🫧</div>
+                  <div class="product-main"><div class="product-name">雪碧</div><div class="product-spec">500ml · ¥3.50</div></div>
+                </div>
+                <div class="product-card-body">
+                  <div class="product-meta"><span class="product-tag location">📍 B-02 货架</span></div>
+                </div>
+              </div>
+              活动到今天晚上 23:59 结束。
+            </div>
+            <div class="feedback-row">
+              <button class="feedback-btn">👍</button>
+              <button class="feedback-btn">👎</button>
+            </div>
+          </div>
+        </div>`;
+    } else if (context === 'product_detail') {
+      // 商品入口
+      msgs.innerHTML = `
+        <div class="msg-row clerk">
+          <div class="msg-avatar">王</div>
+          <div>
+            <div class="msg-bubble">
+              为您找到了这个：
+              <div class="product-card">
+                <div class="product-card-header">
+                  <div class="product-img">🍑</div>
+                  <div class="product-main">
+                    <div class="product-name">元气森林 白桃味</div>
+                    <div class="product-spec">480ml</div>
+                  </div>
+                  <div class="product-price">¥5.00</div>
+                </div>
+                <div class="product-card-body">
+                  <div class="product-meta">
+                    <span class="product-tag location">📍 饮料区 B-03 货架</span>
+                    <span class="product-tag stock">📦 库存充足</span>
+                  </div>
+                </div>
+              </div>
+              <div class="guidance-row">
+                <button class="guidance-chip">📦 还有几瓶？</button>
+                <button class="guidance-chip">🥤 同品类还有什么？</button>
+              </div>
+            </div>
+            <div class="feedback-row">
+              <button class="feedback-btn">👍</button>
+              <button class="feedback-btn">👎</button>
+            </div>
+          </div>
+        </div>`;
+    } else if (context === 'resume') {
+      // 恢复对话
+      msgs.innerHTML = `
+        <div class="context-bridge">您之前在看 <span>可乐 & 雪碧</span>，需要继续吗？</div>
+        <div class="msg-row clerk" style="margin-top:4px;">
+          <div class="msg-avatar">王</div>
+          <div>
+            <div class="msg-bubble">您购物车里有可乐和雪碧，上次聊到结算。需要帮您确认总价吗？</div>
+            <div class="feedback-row">
+              <button class="feedback-btn">👍</button>
+              <button class="feedback-btn">👎</button>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    bindFeedbacks();
+    bindGuidanceChips();
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  /* ═══════ Bind interactions ═══════ */
+  function bindFeedbacks() {
+    document.querySelectorAll('#chatMessages .feedback-btn').forEach(btn => {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        const row = this.closest('.feedback-row');
+        if (row) {
+          row.querySelectorAll('.feedback-btn').forEach(b => b.classList.remove('active-helpful'));
+          this.classList.add('active-helpful');
+        }
+      });
+    });
+  }
+
+  function bindIcebreakerChips() {
+    document.querySelectorAll('#chatMessages .icebreaker-chip').forEach(chip => {
+      chip.addEventListener('click', function() {
+        const msg = this.dataset.msg;
+        document.getElementById('chatInput').value = msg;
+        document.getElementById('chatInput').focus();
+      });
+    });
+  }
+
+  function bindGuidanceChips() {
+    document.querySelectorAll('#chatMessages .guidance-chip').forEach(chip => {
+      chip.addEventListener('click', function() {
+        const promptMap = {
+          '📦 还有几瓶？': '还有几瓶？',
+          '🥤 同品类还有什么？': '同品类的都有什么？'
+        };
+        const key = this.textContent.trim();
+        const input = document.getElementById('chatInput');
+        if (input && promptMap[key]) {
+          input.value = promptMap[key];
+          input.focus();
+        }
+      });
+    });
+  }
+
+  /* ═══════ Chat Send ═══════ */
+  document.getElementById('chatSend').addEventListener('click', () => {
+    const input = document.getElementById('chatInput');
+    const msg = input.value.trim();
+    if (!msg) return;
+
+    const msgs = document.getElementById('chatMessages');
+    const now = new Date();
+    const timeStr = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+
+    const userRow = document.createElement('div');
+    userRow.className = 'msg-row user';
+    userRow.innerHTML = '<div class="msg-bubble">' + escapeHtml(msg) + '</div>';
+    msgs.appendChild(userRow);
+
+    const timeEl = document.createElement('div');
+    timeEl.className = 'msg-time';
+    timeEl.textContent = timeStr;
+    msgs.appendChild(timeEl);
+
+    const typingRow = document.createElement('div');
+    typingRow.className = 'msg-row clerk';
+    typingRow.innerHTML = '<div class="msg-avatar">王</div><div class="msg-bubble"><div class="typing-dots"><span></span><span></span><span></span></div></div>';
+    msgs.appendChild(typingRow);
+    msgs.scrollTop = msgs.scrollHeight;
+
+    setTimeout(() => {
+      typingRow.remove();
+      const clerkRow = document.createElement('div');
+      clerkRow.className = 'msg-row clerk';
+      clerkRow.innerHTML = `
+        <div class="msg-avatar">王</div>
+        <div>
+          <div class="msg-bubble">好的，我帮您看看。您可以试试问我商品位置、库存、价格或者活动信息。</div>
+          <div class="feedback-row">
+            <button class="feedback-btn">👍</button>
+            <button class="feedback-btn">👎</button>
+          </div>
+        </div>`;
+      msgs.appendChild(clerkRow);
+      msgs.scrollTop = msgs.scrollHeight;
+      clerkRow.querySelectorAll('.feedback-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          const row = this.closest('.feedback-row');
+          if (row) {
+            row.querySelectorAll('.feedback-btn').forEach(b => b.classList.remove('active-helpful'));
+            this.classList.add('active-helpful');
+          }
+        });
+      });
+    }, 1200);
+
+    input.value = '';
+  });
+
+  document.getElementById('chatInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') document.getElementById('chatSend').click();
+  });
+
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  // Initialize chat with first_open context (default)
+  renderChatContext('first_open');
+</script>
+</body>
+</html>

@@ -49,10 +49,11 @@ type Evidence struct {
 }
 
 type OrchestratorResult struct {
-	Decision Decision
-	Answer   string
-	Cards    []ChatCard
-	Evidence []Evidence
+	Decision      Decision
+	Answer        string
+	Cards         []ChatCard
+	Evidence      []Evidence
+	GuidanceChips []GuidanceChip
 }
 
 type defaultOrchestrator struct {
@@ -112,8 +113,9 @@ func (o *defaultOrchestrator) Run(ctx context.Context, req OrchestratorRequest) 
 	}
 
 	answer := conservativeAnswer(decision.Route)
+	var guidanceChips []GuidanceChip
 	if len(evidence) > 0 && o.composer != nil {
-		answer, err = o.composer.ComposeAnswer(ctx, AnswerRequest{
+		result, err := o.composer.ComposeAnswer(ctx, AnswerRequest{
 			Decision: decision,
 			Message:  req.Message,
 			Evidence: evidence,
@@ -124,11 +126,13 @@ func (o *defaultOrchestrator) Run(ctx context.Context, req OrchestratorRequest) 
 			}
 			return OrchestratorResult{}, err
 		}
+		answer = result.Answer
+		guidanceChips = result.GuidanceChips
 	} else if len(evidence) == 0 {
 		answer = "暂时没有找到可靠依据回答这个问题，你可以换个问法，或联系人工客服。"
 	}
 
-	return OrchestratorResult{Decision: decision, Answer: answer, Cards: cards, Evidence: evidence}, nil
+	return OrchestratorResult{Decision: decision, Answer: answer, Cards: cards, Evidence: evidence, GuidanceChips: guidanceChips}, nil
 }
 
 func (o *defaultOrchestrator) normalizeRoute(decision Decision) string {

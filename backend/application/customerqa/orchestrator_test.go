@@ -299,8 +299,11 @@ type stubAnswerComposer struct {
 	err    error
 }
 
-func (s stubAnswerComposer) ComposeAnswer(context.Context, AnswerRequest) (string, error) {
-	return s.answer, s.err
+func (s stubAnswerComposer) ComposeAnswer(context.Context, AnswerRequest) (*AnswerResult, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &AnswerResult{Answer: s.answer}, nil
 }
 
 type stubRetriever struct {

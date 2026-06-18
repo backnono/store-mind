@@ -241,22 +241,24 @@ func (r *CustomerQARepository) GetProductLocation(ctx context.Context, storeID, 
 
 func (r *CustomerQARepository) GetInventory(ctx context.Context, storeID, skuID int64) (*domain.Inventory, error) {
 	type inventoryRow struct {
-		ID          int64
-		StoreID     int64
-		SKUID       int64
-		ProductID   int64
-		ProductName string
-		SKUCode     string
-		Spec        string
-		Quantity    int
-		SafetyStock int
-		UpdatedAt   time.Time
+		ID             int64
+		StoreID        int64
+		SKUID          int64
+		ProductID      int64
+		ProductName    string
+		SKUCode        string
+		Spec           string
+		Quantity       int
+		SafetyStock    int
+		LastVerifiedAt *time.Time
+		UpdateSource   *string
+		UpdatedAt      time.Time
 	}
 
 	var row inventoryRow
 	err := r.db.WithContext(ctx).
 		Table("inventory AS i").
-		Select("i.id, i.store_id, i.sku_id, s.product_id, p.name AS product_name, s.barcode AS sku_code, s.spec, i.quantity, i.safety_stock, i.updated_at").
+		Select("i.id, i.store_id, i.sku_id, s.product_id, p.name AS product_name, s.barcode AS sku_code, s.spec, i.quantity, i.safety_stock, i.last_verified_at, i.update_source, i.updated_at").
 		Joins("JOIN sku AS s ON s.id = i.sku_id").
 		Joins("JOIN product AS p ON p.id = s.product_id").
 		Where("i.store_id = ? AND i.sku_id = ?", storeID, skuID).
@@ -269,17 +271,61 @@ func (r *CustomerQARepository) GetInventory(ctx context.Context, storeID, skuID 
 	}
 
 	return &domain.Inventory{
-		ID:          row.ID,
-		StoreID:     row.StoreID,
-		SKUID:       row.SKUID,
-		ProductID:   row.ProductID,
-		ProductName: row.ProductName,
-		SKUCode:     row.SKUCode,
-		Spec:        row.Spec,
-		Quantity:    row.Quantity,
-		SafetyStock: row.SafetyStock,
-		UpdatedAt:   row.UpdatedAt,
+		ID:             row.ID,
+		StoreID:        row.StoreID,
+		SKUID:          row.SKUID,
+		ProductID:      row.ProductID,
+		ProductName:    row.ProductName,
+		SKUCode:        row.SKUCode,
+		Spec:           row.Spec,
+		Quantity:       row.Quantity,
+		SafetyStock:    row.SafetyStock,
+		LastVerifiedAt: row.LastVerifiedAt,
+		UpdateSource:   row.UpdateSource,
+		UpdatedAt:      row.UpdatedAt,
 	}, nil
+}
+
+// CreateFeedback 保存用户反馈
+func (r *CustomerQARepository) CreateFeedback(ctx context.Context, feedback *domain.Feedback) (*domain.Feedback, error) {
+	m := FeedbackModel{
+		MessageID:     feedback.MessageID,
+		SessionID:     feedback.SessionID,
+		FeedbackValue: feedback.FeedbackValue,
+	}
+	if err := r.db.WithContext(ctx).Create(&m).Error; err != nil {
+		return nil, err
+	}
+	feedback.ID = m.ID
+	feedback.CreatedAt = m.CreatedAt
+	return feedback, nil
+}
+
+// CreateDecisionLog 保存 Agent 决策日志
+func (r *CustomerQARepository) CreateDecisionLog(ctx context.Context, log *domain.ChatDecisionLog) (*domain.ChatDecisionLog, error) {
+	m := DecisionLogModel{
+		SessionID:       log.SessionID,
+		MessageID:       log.MessageID,
+		Intent:          log.Intent,
+		Route:           log.Route,
+		RewriteQuery:    stringPtrOrNil(log.RewriteQuery),
+		Confidence:      log.Confidence,
+		FallbackUsed:    log.FallbackUsed,
+		HandoffRequired: log.HandoffRequired,
+	}
+	if err := r.db.WithContext(ctx).Create(&m).Error; err != nil {
+		return nil, err
+	}
+	log.ID = m.ID
+	log.CreatedAt = m.CreatedAt
+	return log, nil
+}
+
+func stringPtrOrNil(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 func (r *CustomerQARepository) ListActivePromotions(ctx context.Context, storeID int64, now time.Time, limit int) ([]domain.Promotion, error) {

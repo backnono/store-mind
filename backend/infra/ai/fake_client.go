@@ -28,9 +28,13 @@ func (f FakeIntentAnalyzer) AnalyzeIntent(_ context.Context, req app.IntentReque
 
 type FakeAnswerComposer struct{}
 
-func (FakeAnswerComposer) ComposeAnswer(_ context.Context, req app.AnswerRequest) (string, error) {
-	if len(req.Evidence) == 0 {
-		return "暂时没有足够证据回答这个问题。", nil
+func (FakeAnswerComposer) ComposeAnswer(_ context.Context, req app.AnswerRequest) (*app.AnswerResult, error) {
+	answer := "暂时没有足够证据回答这个问题。"
+	if len(req.Evidence) > 0 {
+		answer = req.Evidence[0].Content
 	}
-	return req.Evidence[0].Content, nil
+	return &app.AnswerResult{
+		Answer:        answer,
+		GuidanceChips: nil,
+	}, nil
 }

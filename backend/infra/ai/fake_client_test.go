@@ -25,7 +25,7 @@ func TestFakeAnalyzerAnalyzeIntent(t *testing.T) {
 
 func TestFakeComposerComposeAnswer(t *testing.T) {
 	composer := FakeAnswerComposer{}
-	answer, err := composer.ComposeAnswer(context.Background(), app.AnswerRequest{
+	result, err := composer.ComposeAnswer(context.Background(), app.AnswerRequest{
 		Message: "怎么付款",
 		Evidence: []app.Evidence{{
 			Kind:    "faq",
@@ -36,7 +36,7 @@ func TestFakeComposerComposeAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if answer == "" {
+	if result == nil || result.Answer == "" {
 		t.Fatalf("expected non-empty answer")
 	}
 }

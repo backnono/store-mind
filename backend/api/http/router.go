@@ -7,7 +7,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func NewRouter(l *zap.Logger, customerQAHandler *CustomerQAHandler) *gin.Engine {
+func NewRouter(l *zap.Logger, customerQAHandler *CustomerQAHandler, feedbackHandler *FeedbackHandler) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
 	if l != nil {
@@ -20,6 +20,7 @@ func NewRouter(l *zap.Logger, customerQAHandler *CustomerQAHandler) *gin.Engine 
 
 	v1 := r.Group("/api/v1")
 	v1.POST("/customer-qa/chat", customerQAHandler.Chat)
+	v1.POST("/customer-qa/feedback", feedbackHandler.Submit)
 	v1.GET("/customer-qa/faqs/search", customerQAHandler.SearchFAQ)
 	v1.GET("/customer-qa/products/search", customerQAHandler.SearchProducts)
 	v1.GET("/customer-qa/products/:product_id/location", customerQAHandler.GetProductLocation)

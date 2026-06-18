@@ -66,8 +66,12 @@ func (f fakeService) ListToolCalls(_ context.Context, req app.ToolCallListReques
 	return []domain.ToolCall{{ID: 1, SessionID: req.SessionID, ToolName: "search_faq", Success: true}}, nil
 }
 
+func (f fakeService) SaveFeedback(_ context.Context, messageID, sessionID int64, feedbackValue int8) error {
+	return nil
+}
+
 func TestCustomerQAChat(t *testing.T) {
-	r := NewRouter(zap.NewNop(), NewCustomerQAHandler(fakeService{}, zap.NewNop()))
+	r := NewRouter(zap.NewNop(), NewCustomerQAHandler(fakeService{}, zap.NewNop()), nil)
 	body, _ := json.Marshal(map[string]any{"store_id": 1, "session_id": 7, "channel": "miniapp", "message": "可乐在哪里"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/customer-qa/chat", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -124,7 +128,7 @@ func TestCustomerQAChat(t *testing.T) {
 }
 
 func TestCustomerQASearchFAQ(t *testing.T) {
-	r := NewRouter(zap.NewNop(), NewCustomerQAHandler(fakeService{}, zap.NewNop()))
+	r := NewRouter(zap.NewNop(), NewCustomerQAHandler(fakeService{}, zap.NewNop()), nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/customer-qa/faqs/search?store_id=1&q=付款", nil)
 	req.Header.Set("X-Request-Id", "rid-faq")
 	rr := httptest.NewRecorder()
@@ -148,7 +152,7 @@ func TestCustomerQASearchFAQ(t *testing.T) {
 }
 
 func TestCustomerQASearchProducts(t *testing.T) {
-	r := NewRouter(zap.NewNop(), NewCustomerQAHandler(fakeService{}, zap.NewNop()))
+	r := NewRouter(zap.NewNop(), NewCustomerQAHandler(fakeService{}, zap.NewNop()), nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/customer-qa/products/search?store_id=1&q=可乐", nil)
 	req.Header.Set("X-Request-Id", "rid-product")
 	rr := httptest.NewRecorder()
@@ -169,7 +173,7 @@ func TestCustomerQASearchProducts(t *testing.T) {
 }
 
 func TestCustomerQAGetProductLocation(t *testing.T) {
-	r := NewRouter(zap.NewNop(), NewCustomerQAHandler(fakeService{}, zap.NewNop()))
+	r := NewRouter(zap.NewNop(), NewCustomerQAHandler(fakeService{}, zap.NewNop()), nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/customer-qa/products/101/location?store_id=1", nil)
 	req.Header.Set("X-Request-Id", "rid-location")
 	rr := httptest.NewRecorder()
@@ -189,7 +193,7 @@ func TestCustomerQAGetProductLocation(t *testing.T) {
 }
 
 func TestCustomerQAGetInventory(t *testing.T) {
-	r := NewRouter(zap.NewNop(), NewCustomerQAHandler(fakeService{}, zap.NewNop()))
+	r := NewRouter(zap.NewNop(), NewCustomerQAHandler(fakeService{}, zap.NewNop()), nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/customer-qa/skus/1001/inventory?store_id=1", nil)
 	req.Header.Set("X-Request-Id", "rid-inventory")
 	rr := httptest.NewRecorder()
@@ -209,7 +213,7 @@ func TestCustomerQAGetInventory(t *testing.T) {
 }
 
 func TestCustomerQAListActivePromotions(t *testing.T) {
-	r := NewRouter(zap.NewNop(), NewCustomerQAHandler(fakeService{}, zap.NewNop()))
+	r := NewRouter(zap.NewNop(), NewCustomerQAHandler(fakeService{}, zap.NewNop()), nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/customer-qa/promotions/active?store_id=1", nil)
 	req.Header.Set("X-Request-Id", "rid-promotion")
 	rr := httptest.NewRecorder()
@@ -230,7 +234,7 @@ func TestCustomerQAListActivePromotions(t *testing.T) {
 }
 
 func TestCustomerQAListSessions(t *testing.T) {
-	r := NewRouter(zap.NewNop(), NewCustomerQAHandler(fakeService{}, zap.NewNop()))
+	r := NewRouter(zap.NewNop(), NewCustomerQAHandler(fakeService{}, zap.NewNop()), nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/admin/customer-qa/sessions?store_id=1", nil)
 	req.Header.Set("X-Request-Id", "rid-sessions")
 	rr := httptest.NewRecorder()
@@ -242,7 +246,7 @@ func TestCustomerQAListSessions(t *testing.T) {
 }
 
 func TestCustomerQAListToolCalls(t *testing.T) {
-	r := NewRouter(zap.NewNop(), NewCustomerQAHandler(fakeService{}, zap.NewNop()))
+	r := NewRouter(zap.NewNop(), NewCustomerQAHandler(fakeService{}, zap.NewNop()), nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/admin/customer-qa/tool-calls?session_id=7", nil)
 	req.Header.Set("X-Request-Id", "rid-tool-calls")
 	rr := httptest.NewRecorder()

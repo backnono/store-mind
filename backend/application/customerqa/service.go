@@ -23,6 +23,7 @@ type ChatResponse struct {
 	Intent          string           `json:"intent"`
 	Answer          string           `json:"answer"`
 	Cards           []ChatCard       `json:"cards"`
+	GuidanceChips   []GuidanceChip   `json:"guidance_chips"`
 	HandoffRequired bool             `json:"handoff_required"`
 	Meta            ChatResponseMeta `json:"meta,omitempty"`
 }
@@ -100,6 +101,7 @@ type Service interface {
 	ListActivePromotions(ctx context.Context, req PromotionListRequest) ([]domain.Promotion, error)
 	ListSessions(ctx context.Context, req SessionListRequest) ([]domain.Session, error)
 	ListToolCalls(ctx context.Context, req ToolCallListRequest) ([]domain.ToolCall, error)
+	SaveFeedback(ctx context.Context, messageID, sessionID int64, feedbackValue int8) error
 }
 
 type service struct {
@@ -150,9 +152,8 @@ func (s *service) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, err
 		s.log.Error("app_chat_resolve_session_failed", "request_id", req.RequestID, "session_id", req.SessionID, "error", err)
 		return nil, err
 	}
-	intent := routeIntent(req.Message)
-	confidence := 0.95
-	msg, err := s.repo.CreateMessage(ctx, &domain.Message{SessionID: session.ID, Role: "user", Content: req.Message, Intent: intent, Confidence: &confidence})
+	// 用户消息先不设 intent，orchestrator 执行后 intent 通过 ChatDecisionLog（message_id 关联）持久化
+	msg, err := s.repo.CreateMessage(ctx, &domain.Message{SessionID: session.ID, Role: "user", Content: req.Message, Intent: ""})
 	if err != nil {
 		s.log.Error("app_chat_create_message_failed", "request_id", req.RequestID, "session_id", session.ID, "error", err)
 		return nil, err
@@ -187,6 +188,7 @@ func (s *service) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, err
 		Intent:          result.Decision.Intent,
 		Answer:          result.Answer,
 		Cards:           result.Cards,
+		GuidanceChips:   result.GuidanceChips,
 		HandoffRequired: result.Decision.NeedsHandoff,
 		Meta: ChatResponseMeta{
 			Route:         result.Decision.Route,
@@ -338,6 +340,32 @@ func (s *service) ListToolCalls(ctx context.Context, req ToolCallListRequest) ([
 		req.Limit = 100
 	}
 	return s.repo.ListToolCalls(ctx, req.SessionID, req.Limit)
+}
+
+// SaveFeedback 保存用户对回答的反馈 (👍/👎)
+func (s *service) SaveFeedback(ctx context.Context, messageID, sessionID int64, feedbackValue int8) error {
+	if messageID <= 0 || sessionID <= 0 {
+		return domain.ErrInvalidArgument
+	}
+	if feedbackValue != 0 && feedbackValue != 1 {
+		return domain.ErrInvalidArgument
+	}
+	feedbackRepo, ok := s.repo.(domain.FeedbackRepository)
+	if !ok {
+		s.log.Error("app_feedback_repo_not_available")
+		return domain.ErrInvalidArgument
+	}
+	_, err := feedbackRepo.CreateFeedback(ctx, &domain.Feedback{
+		MessageID:     messageID,
+		SessionID:     sessionID,
+		FeedbackValue: feedbackValue,
+	})
+	if err != nil {
+		s.log.Error("app_feedback_create_failed", "message_id", messageID, "session_id", sessionID, "error", err)
+		return err
+	}
+	s.log.Info("app_feedback_saved", "message_id", messageID, "session_id", sessionID, "value", feedbackValue)
+	return nil
 }
 
 func (s *service) resolveSession(ctx context.Context, req ChatRequest) (*domain.Session, error) {

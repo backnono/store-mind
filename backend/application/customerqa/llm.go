@@ -18,6 +18,18 @@ type AnswerRequest struct {
 	Evidence []Evidence
 }
 
+// GuidanceChip 引导建议芯片
+type GuidanceChip struct {
+	Text   string `json:"text"`
+	Prompt string `json:"prompt"`
+}
+
+// AnswerResult 答案生成结果
+type AnswerResult struct {
+	Answer        string         `json:"answer"`
+	GuidanceChips []GuidanceChip `json:"guidance_chips"`
+}
+
 type AnswerComposer interface {
-	ComposeAnswer(ctx context.Context, req AnswerRequest) (string, error)
+	ComposeAnswer(ctx context.Context, req AnswerRequest) (*AnswerResult, error)
 }

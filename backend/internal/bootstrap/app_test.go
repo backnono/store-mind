@@ -70,8 +70,8 @@ func (bootstrapAnalyzerStub) AnalyzeIntent(context.Context, app.IntentRequest) (
 
 type bootstrapComposerStub struct{}
 
-func (bootstrapComposerStub) ComposeAnswer(context.Context, app.AnswerRequest) (string, error) {
-	return "支持微信和支付宝扫码支付", nil
+func (bootstrapComposerStub) ComposeAnswer(context.Context, app.AnswerRequest) (*app.AnswerResult, error) {
+	return &app.AnswerResult{Answer: "支持微信和支付宝扫码支付"}, nil
 }
 
 type bootstrapRetrieverStub struct{}

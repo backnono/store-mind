@@ -82,6 +82,7 @@ func (h *CustomerQAHandler) Chat(c *gin.Context) {
 			"intent":           resp.Intent,
 			"answer":           resp.Answer,
 			"cards":            resp.Cards,
+			"guidance_chips":   resp.GuidanceChips,
 			"handoff_required": resp.HandoffRequired,
 			"meta": gin.H{
 				"request_id":     rid,

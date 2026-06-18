@@ -13,16 +13,44 @@ type SessionModel struct {
 func (SessionModel) TableName() string { return "agent_session" }
 
 type MessageModel struct {
-	ID        int64     `gorm:"primaryKey;autoIncrement"`
-	SessionID int64     `gorm:"not null;index"`
-	Role      string    `gorm:"type:varchar(32);not null"`
-	Content   string    `gorm:"type:text;not null"`
-	Intent    string    `gorm:"type:varchar(64);not null"`
-	Confidence *float64  `gorm:"type:decimal(5,4)"`
-	CreatedAt time.Time `gorm:"autoCreateTime"`
+	ID             int64     `gorm:"primaryKey;autoIncrement"`
+	SessionID      int64     `gorm:"not null;index"`
+	Role           string    `gorm:"type:varchar(32);not null"`
+	Content        string    `gorm:"type:text;not null"`
+	Intent         string    `gorm:"type:varchar(64);not null;default:''"`
+	Confidence     *float64  `gorm:"type:decimal(5,4)"`
+	ContextState   *string   `gorm:"type:varchar(32)"`
+	FocusEntityIDs *string   `gorm:"type:json"`
+	ContextStack   *string   `gorm:"type:json"`
+	CreatedAt      time.Time `gorm:"autoCreateTime"`
 }
 
 func (MessageModel) TableName() string { return "agent_message" }
+
+type FeedbackModel struct {
+	ID            int64     `gorm:"primaryKey;autoIncrement"`
+	MessageID     int64     `gorm:"not null;index"`
+	SessionID     int64     `gorm:"not null;index"`
+	FeedbackValue int8      `gorm:"not null"`
+	CreatedAt     time.Time `gorm:"autoCreateTime"`
+}
+
+func (FeedbackModel) TableName() string { return "agent_feedback" }
+
+type DecisionLogModel struct {
+	ID              int64     `gorm:"primaryKey;autoIncrement"`
+	SessionID       int64     `gorm:"not null;index"`
+	MessageID       int64     `gorm:"not null;index"`
+	Intent          string    `gorm:"type:varchar(64);not null"`
+	Route           string    `gorm:"type:varchar(32);not null"`
+	RewriteQuery    *string   `gorm:"type:varchar(512)"`
+	Confidence      float64   `gorm:"type:decimal(5,4);not null"`
+	FallbackUsed    bool      `gorm:"not null"`
+	HandoffRequired bool      `gorm:"not null"`
+	CreatedAt       time.Time `gorm:"autoCreateTime"`
+}
+
+func (DecisionLogModel) TableName() string { return "agent_decision_log" }
 
 type ToolCallModel struct {
 	ID           int64     `gorm:"primaryKey;autoIncrement"`
@@ -120,12 +148,14 @@ type ProductLocationModel struct {
 func (ProductLocationModel) TableName() string { return "product_location" }
 
 type InventoryModel struct {
-	ID          int64     `gorm:"primaryKey;autoIncrement"`
-	StoreID     int64     `gorm:"not null;index"`
-	SKUID       int64     `gorm:"not null;index"`
-	Quantity    int       `gorm:"not null"`
-	SafetyStock int       `gorm:"not null"`
-	UpdatedAt   time.Time `gorm:"autoUpdateTime"`
+	ID             int64      `gorm:"primaryKey;autoIncrement"`
+	StoreID        int64      `gorm:"not null;index"`
+	SKUID          int64      `gorm:"not null;index"`
+	Quantity       int        `gorm:"not null"`
+	SafetyStock    int        `gorm:"not null"`
+	LastVerifiedAt *time.Time `gorm:"index"`
+	UpdateSource   *string    `gorm:"type:varchar(32)"`
+	UpdatedAt      time.Time  `gorm:"autoUpdateTime"`
 }
 
 func (InventoryModel) TableName() string { return "inventory" }

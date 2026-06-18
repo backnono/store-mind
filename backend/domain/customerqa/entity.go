@@ -3,21 +3,48 @@ package customerqa
 import "time"
 
 type Session struct {
-	ID        int64      `json:"id"`
-	StoreID   int64      `json:"store_id"`
-	UserID    *int64     `json:"user_id,omitempty"`
-	Channel   string     `json:"channel"`
-	StartedAt time.Time  `json:"started_at"`
+	ID        int64     `json:"id"`
+	StoreID   int64     `json:"store_id"`
+	UserID    *int64    `json:"user_id,omitempty"`
+	Channel   string    `json:"channel"`
+	StartedAt time.Time `json:"started_at"`
 }
 
 type Message struct {
-	ID        int64     `json:"id"`
-	SessionID int64     `json:"session_id"`
-	Role      string    `json:"role"`
-	Content   string    `json:"content"`
-	Intent    string    `json:"intent"`
-	Confidence *float64 `json:"confidence,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	ID             int64              `json:"id"`
+	SessionID      int64              `json:"session_id"`
+	Role           string             `json:"role"`
+	Content        string             `json:"content"`
+	Intent         string             `json:"intent"`
+	Confidence     *float64           `json:"confidence,omitempty"`
+	ContextState   *string            `json:"context_state,omitempty"`
+	FocusEntityIDs *FocusEntityIDs    `json:"focus_entity_ids,omitempty"`
+	ContextStack   []ContextStackItem `json:"context_stack,omitempty"`
+	CreatedAt      time.Time          `json:"created_at"`
+}
+
+// FocusEntityIDs 当前对话锁定的实体
+type FocusEntityIDs struct {
+	ProductIDs []int64 `json:"product_ids,omitempty"`
+	SKUIDs     []int64 `json:"sku_ids,omitempty"`
+	ZoneIDs    []int64 `json:"zone_ids,omitempty"`
+}
+
+// ContextStackItem 单轮对话的结构化摘要
+type ContextStackItem struct {
+	Turn             int              `json:"turn"`
+	Intent           string           `json:"intent"`
+	ResolvedEntities []ResolvedEntity `json:"resolved_entities,omitempty"`
+	SystemAction     string           `json:"system_action"`
+	SystemSummary    string           `json:"system_summary"`
+}
+
+// ResolvedEntity 消解后的实体
+type ResolvedEntity struct {
+	Type      string `json:"type"` // product / sku / zone / category
+	Name      string `json:"name"`
+	ProductID *int64 `json:"product_id,omitempty"`
+	SKUID     *int64 `json:"sku_id,omitempty"`
 }
 
 type FAQ struct {
@@ -53,16 +80,18 @@ type ProductLocation struct {
 }
 
 type Inventory struct {
-	ID          int64     `json:"id"`
-	StoreID     int64     `json:"store_id"`
-	SKUID       int64     `json:"sku_id"`
-	ProductID   int64     `json:"product_id"`
-	ProductName string    `json:"product_name"`
-	SKUCode     string    `json:"sku_code"`
-	Spec        string    `json:"spec"`
-	Quantity    int       `json:"quantity"`
-	SafetyStock int       `json:"safety_stock"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID             int64      `json:"id"`
+	StoreID        int64      `json:"store_id"`
+	SKUID          int64      `json:"sku_id"`
+	ProductID      int64      `json:"product_id"`
+	ProductName    string     `json:"product_name"`
+	SKUCode        string     `json:"sku_code"`
+	Spec           string     `json:"spec"`
+	Quantity       int        `json:"quantity"`
+	SafetyStock    int        `json:"safety_stock"`
+	LastVerifiedAt *time.Time `json:"last_verified_at,omitempty"`
+	UpdateSource   *string    `json:"update_source,omitempty"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
 type Promotion struct {
@@ -74,6 +103,14 @@ type Promotion struct {
 	StartAt      time.Time `json:"start_at"`
 	EndAt        time.Time `json:"end_at"`
 	Status       string    `json:"status"`
+}
+
+type Feedback struct {
+	ID            int64     `json:"id"`
+	MessageID     int64     `json:"message_id"`
+	SessionID     int64     `json:"session_id"`
+	FeedbackValue int8      `json:"feedback_value"` // 1=👍 / 0=👎
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 type ToolCall struct {

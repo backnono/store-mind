@@ -1,0 +1,13 @@
+# store-mind 后端配置文件
+# 所有配置项均支持环境变量覆盖（前缀 APP_）
+# 环境变量名 = APP_ + 树形路径转大写 + _ 分隔
+# 例如: server.http_addr -> APP_SERVER_HTTP_ADDR
+
+server:
+  http_addr: ":8080"
+
+database:
+  mysql_dsn: "app:app@tcp(127.0.0.1:3307)/store_mind?parseTime=true"
+
+llm:
+  python_endpoint: "http://127.0.0.1:9090"

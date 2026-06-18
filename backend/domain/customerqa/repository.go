@@ -18,3 +18,8 @@ type Repository interface {
 	GetInventory(ctx context.Context, storeID, skuID int64) (*Inventory, error)
 	ListActivePromotions(ctx context.Context, storeID int64, now time.Time, limit int) ([]Promotion, error)
 }
+
+// FeedbackRepository 反馈持久化接口
+type FeedbackRepository interface {
+	CreateFeedback(ctx context.Context, feedback *Feedback) (*Feedback, error)
+}
