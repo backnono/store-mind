@@ -9,6 +9,8 @@ from typing import Optional
 
 from openai import AsyncOpenAI
 
+INTENT_LLM_TIMEOUT_SECONDS = 5.0
+
 # ── 7 类意图分类体系 ────────────────────────────────
 # product_location  - 商品位置查询（"可乐在哪里？"）
 # inventory          - 库存查询（"可乐还有吗？"）
@@ -97,7 +99,7 @@ class IntentAnalyzer:
                     max_tokens=512,
                     response_format={"type": "json_object"},
                 ),
-                timeout=3.0,
+                timeout=INTENT_LLM_TIMEOUT_SECONDS,
             )
 
             content = response.choices[0].message.content or "{}"

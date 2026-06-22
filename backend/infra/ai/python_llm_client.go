@@ -13,6 +13,8 @@ import (
 	app "store-mind/application/customerqa"
 )
 
+const intentRequestTimeout = 8 * time.Second
+
 // PythonLLMClient 通过 HTTP 调用 Python LLM Sidecar
 // 实现 IntentAnalyzer 和 AnswerComposer 接口
 type PythonLLMClient struct {
@@ -34,9 +36,9 @@ func NewPythonLLMClient(endpoint string) *PythonLLMClient {
 // ── IntentAnalyzer 实现 ─────────────────────────────
 
 // AnalyzeIntent 调用 Python /llm/intent 进行意图分析
-// 超时 3s，失败时返回 fallback_used=true 的降级决策
+// 超时 8s，失败时返回 fallback_used=true 的降级决策
 func (c *PythonLLMClient) AnalyzeIntent(ctx context.Context, req app.IntentRequest) (app.Decision, error) {
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, intentRequestTimeout)
 	defer cancel()
 
 	body := map[string]any{

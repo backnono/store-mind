@@ -26,7 +26,7 @@ func NewFeedbackHandler(svc app.Service, log *zap.Logger) *FeedbackHandler {
 type feedbackRequest struct {
 	MessageID     int64 `json:"message_id" binding:"required"`
 	SessionID     int64 `json:"session_id" binding:"required"`
-	FeedbackValue int8  `json:"feedback_value" binding:"required"` // 1=👍 / 0=👎
+	FeedbackValue int8  `json:"feedback_value"` // 1=👍 / 0=👎
 }
 
 func (h *FeedbackHandler) Submit(c *gin.Context) {
@@ -56,12 +56,15 @@ func (h *FeedbackHandler) Submit(c *gin.Context) {
 		return
 	}
 
-	h.log.Info("feedback_success",
+	h.log.Info(
+		"feedback_success",
 		zap.String("request_id", rid),
 		zap.Int64("message_id", req.MessageID),
 		zap.Int8("value", req.FeedbackValue),
 	)
-	c.JSON(http.StatusOK, gin.H{
-		"status": "ok",
-	})
+	c.JSON(
+		http.StatusOK, gin.H{
+			"status": "ok",
+		},
+	)
 }

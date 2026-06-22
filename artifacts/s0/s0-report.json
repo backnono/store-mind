@@ -1,0 +1,120 @@
+{
+  "mode": "local",
+  "started_at": "2026-06-22T14:11:08+0800",
+  "passed": true,
+  "summary": {
+    "total": 18,
+    "passed": 18,
+    "failed": 0
+  },
+  "checks": [
+    {
+      "gate": "environment",
+      "name": "Go backend health",
+      "passed": true,
+      "detail": "HTTP 200: {'status': 'ok'}"
+    },
+    {
+      "gate": "environment",
+      "name": "Python sidecar health",
+      "passed": true,
+      "detail": "HTTP 200: {'status': 'ok', 'model': 'deepseek-v4-pro'}"
+    },
+    {
+      "gate": "environment",
+      "name": "MySQL connectivity",
+      "passed": true,
+      "detail": "SELECT 1"
+    },
+    {
+      "gate": "schema",
+      "name": "inventory",
+      "passed": true,
+      "detail": "all required columns present"
+    },
+    {
+      "gate": "schema",
+      "name": "agent_message",
+      "passed": true,
+      "detail": "all required columns present"
+    },
+    {
+      "gate": "schema",
+      "name": "agent_feedback",
+      "passed": true,
+      "detail": "all required columns present"
+    },
+    {
+      "gate": "schema",
+      "name": "agent_decision_log",
+      "passed": true,
+      "detail": "all required columns present"
+    },
+    {
+      "gate": "schema",
+      "name": "legacy catalog data preserved",
+      "passed": true,
+      "detail": "known products present=3/3"
+    },
+    {
+      "gate": "sidecar-contract",
+      "name": "/llm/intent",
+      "passed": true,
+      "detail": "HTTP 200, missing=[], payload={'intent': 'product_location', 'rewritten_query': '可乐在哪里', 'route': 'tool', 'needs_handoff': False, 'confidence': 0.95, 'reasoning_tags': ['产品名:可乐', '位置关键词:在哪里'], 'fallback_used': False}"
+    },
+    {
+      "gate": "sidecar-contract",
+      "name": "/llm/answer",
+      "passed": true,
+      "detail": "HTTP 200, answer=可口可乐在饮料区 B-02 货架第2层。"
+    },
+    {
+      "gate": "sidecar-contract",
+      "name": "/llm/resolve",
+      "passed": true,
+      "detail": "HTTP 200, keys=['confidence', 'explanation', 'resolved_entities']"
+    },
+    {
+      "gate": "intent-quality",
+      "name": "56-case LLM accuracy",
+      "passed": true,
+      "detail": "85.7% (48/56), required >= 85.0%, request_errors=0"
+    },
+    {
+      "gate": "e2e",
+      "name": "intent → tool → answer",
+      "passed": true,
+      "detail": "evidence_count=1, cards=1"
+    },
+    {
+      "gate": "no-fabrication",
+      "name": "missing product has no invented facts",
+      "passed": true,
+      "detail": "暂时没有找到可靠依据回答这个问题，你可以换个问法，或联系人工客服。"
+    },
+    {
+      "gate": "persistence",
+      "name": "messages and decision log are linked",
+      "passed": true,
+      "detail": "user_message=10, assistant_message=11, decision=['product_location', 'tool', '0.9500', '0']"
+    },
+    {
+      "gate": "feedback",
+      "name": "thumbs up persists",
+      "passed": true,
+      "detail": "HTTP 200, rows 0→1, payload={'status': 'ok'}"
+    },
+    {
+      "gate": "feedback",
+      "name": "thumbs down persists",
+      "passed": true,
+      "detail": "HTTP 200, rows 0→1, payload={'status': 'ok'}"
+    },
+    {
+      "gate": "feedback",
+      "name": "invalid value rejected",
+      "passed": true,
+      "detail": "HTTP 400: {'code': 'bad_request', 'message': 'feedback_value must be 0 (👎) or 1 (👍)'}"
+    }
+  ]
+}

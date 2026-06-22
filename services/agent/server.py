@@ -27,7 +27,7 @@ logger = logging.getLogger("agent")
 # DeepSeek 配置
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
-DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro")
 
 # ── 全局组件 ─────────────────────────────────────────
 intent_analyzer: IntentAnalyzer
