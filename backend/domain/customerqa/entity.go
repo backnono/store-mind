@@ -48,11 +48,13 @@ type ResolvedEntity struct {
 }
 
 type FAQ struct {
-	ID       int64  `json:"id"`
-	StoreID  int64  `json:"store_id"`
-	Question string `json:"question"`
-	Answer   string `json:"answer"`
-	Category string `json:"category"`
+	ID       int64    `json:"id"`
+	StoreID  int64    `json:"store_id"`
+	Question string   `json:"question"`
+	Answer   string   `json:"answer"`
+	Category string   `json:"category"`
+	Keywords []string `json:"keywords,omitempty"`
+	Status   string   `json:"status"`
 }
 
 type Product struct {
@@ -87,6 +89,7 @@ type Inventory struct {
 	ProductName    string     `json:"product_name"`
 	SKUCode        string     `json:"sku_code"`
 	Spec           string     `json:"spec"`
+	Price          float64    `json:"price"` // S2.3: SKU 价格
 	Quantity       int        `json:"quantity"`
 	SafetyStock    int        `json:"safety_stock"`
 	LastVerifiedAt *time.Time `json:"last_verified_at,omitempty"`
@@ -124,4 +127,41 @@ type ToolCall struct {
 	Success      bool      `json:"success"`
 	ErrorMessage string    `json:"error_message,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
+}
+
+// ---------- Admin resource entities ----------
+
+type Store struct {
+	ID        int64     `json:"id"`
+	Name      string    `json:"name"`
+	Address   string    `json:"address"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type Zone struct {
+	ID          int64  `json:"id"`
+	StoreID     int64  `json:"store_id"`
+	Code        string `json:"code"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type Shelf struct {
+	ID          int64  `json:"id"`
+	StoreID     int64  `json:"store_id"`
+	ZoneID      int64  `json:"zone_id"`
+	Code        string `json:"code"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type SKU struct {
+	ID        int64   `json:"id"`
+	ProductID int64   `json:"product_id"`
+	Barcode   string  `json:"barcode"`
+	Spec      string  `json:"spec"`
+	Price     float64 `json:"price"`
+	Status    string  `json:"status"`
 }

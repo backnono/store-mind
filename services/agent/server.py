@@ -1,7 +1,7 @@
 """
 小王 · 数字店员 — Python LLM Sidecar
 FastAPI 服务，监听 localhost:9090
-提供 3 个端点：意图分析、答案生成、指代消解
+提供 4 个端点：意图分析、答案生成、指代消解、语义重排序
 """
 
 import os
@@ -16,6 +16,7 @@ import uvicorn
 from intent_analyzer import IntentAnalyzer
 from answer_composer import AnswerComposer
 from anaphora_resolver import AnaphoraResolver
+from semantic_ranker import SemanticRanker
 
 # ── 配置 ────────────────────────────────────────────
 logging.basicConfig(
@@ -33,11 +34,12 @@ DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro")
 intent_analyzer: IntentAnalyzer
 answer_composer: AnswerComposer
 anaphora_resolver: AnaphoraResolver
+semantic_ranker: SemanticRanker
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global intent_analyzer, answer_composer, anaphora_resolver
+    global intent_analyzer, answer_composer, anaphora_resolver, semantic_ranker
     logger.info("Initializing LLM components...")
 
     intent_analyzer = IntentAnalyzer(
@@ -51,6 +53,11 @@ async def lifespan(app: FastAPI):
         model=DEEPSEEK_MODEL,
     )
     anaphora_resolver = AnaphoraResolver(
+        api_key=DEEPSEEK_API_KEY,
+        base_url=DEEPSEEK_BASE_URL,
+        model=DEEPSEEK_MODEL,
+    )
+    semantic_ranker = SemanticRanker(
         api_key=DEEPSEEK_API_KEY,
         base_url=DEEPSEEK_BASE_URL,
         model=DEEPSEEK_MODEL,
@@ -157,6 +164,30 @@ async def resolve_anaphora(req: dict):
         elapsed = time.monotonic() - start
         logger.error(f"anaphora resolution failed ({elapsed:.2f}s): {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/llm/semantic_search")
+async def semantic_search(req: dict):
+    """
+    FAQ 语义重排序
+    输入: { query: str, candidates: [{id, question, answer, category}] }
+    输出: { ranked: [{id, relevance_score}] }
+    超时: 4s
+    """
+    start = time.monotonic()
+    try:
+        query = req.get("query", "")
+        candidates = req.get("candidates", [])
+        ranked = await semantic_ranker.rank(query, candidates)
+        elapsed = time.monotonic() - start
+        logger.info(f"semantic search ranked {len(ranked)} candidates ({elapsed:.2f}s)")
+        return {"ranked": ranked}
+    except Exception as e:
+        elapsed = time.monotonic() - start
+        logger.error(f"semantic search failed ({elapsed:.2f}s): {e}")
+        # 兜底：返回原始顺序
+        candidates = req.get("candidates", [])
+        return {"ranked": [{"id": c["id"], "relevance_score": 0.5} for c in candidates]}
 
 
 @app.get("/health")

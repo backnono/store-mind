@@ -33,14 +33,36 @@ func Build() (*App, error) {
 	repo := mysql.NewCustomerQARepository(db)
 
 	// S0: 尝试接入 Python LLM Sidecar
-	// 若 PythonLLMEndpoint 为空或连接失败，降级使用 fallbackOrchestrator（关键词匹配）
 	pythonLLMClient := ai.NewPythonLLMClient(cfg.PythonLLMEndpoint)
-	svc := newCustomerQAService(repo, pythonLLMClient, pythonLLMClient, defaultRetriever(repo))
+
+	// S1: 创建会话管理器（基于 repo 加载 context_stack）
+	sessionMgr := app.NewSessionManager(repo, logger.NewAppLogger(l))
+
+	// S1: 创建上下文消解器（L1 规则 / L2 通过 Python LLM sidecar）
+	contextResolver := app.NewContextResolver(pythonLLMClient, logger.NewAppLogger(l))
+
+	// S1: 创建引导引擎（规则驱动）
+	guideEngine := app.NewGuideEngine(logger.NewAppLogger(l))
+
+	orch := app.NewDefaultOrchestrator(repo, logger.NewAppLogger(l), pythonLLMClient, pythonLLMClient, defaultRetriever(repo, pythonLLMClient))
+	svc := app.NewServiceWithConfig(app.ServiceConfig{
+		Repo:            repo,
+		Log:             logger.NewAppLogger(l),
+		Orchestrator:    orch,
+		SessionManager:  sessionMgr,
+		ContextResolver: contextResolver,
+		GuideEngine:     guideEngine,
+	})
 
 	// S0.5: 反馈端点
 	h := apihttp.NewCustomerQAHandler(svc, l)
 	fh := apihttp.NewFeedbackHandler(svc, l)
-	r := apihttp.NewRouter(l, h, fh)
+
+	// S2.4: 管理后台 CRUD
+	adminRepo := mysql.NewAdminRepository(db)
+	ah := apihttp.NewAdminHandler(adminRepo, l)
+
+	r := apihttp.NewRouter(l, h, fh, ah)
 
 	return &App{Router: r, Logger: l, Config: cfg}, nil
 }
@@ -76,6 +98,10 @@ func defaultComposer() app.AnswerComposer {
 	return ai.FakeAnswerComposer{}
 }
 
-func defaultRetriever(repo domain.KnowledgeRepository) app.Retriever {
-	return retrieval.NewMySQLRetriever(repo)
+func defaultRetriever(repo domain.KnowledgeRepository, reranker retrieval.SemanticReranker) app.Retriever {
+	r := retrieval.NewMySQLRetriever(repo)
+	if reranker != nil {
+		r.SetLLMClient(reranker)
+	}
+	return r
 }

@@ -49,6 +49,9 @@ func (bootstrapRepoStub) SearchFAQ(context.Context, int64, string, int) ([]domai
 func (bootstrapRepoStub) SearchProducts(context.Context, int64, string, int) ([]domain.Product, error) {
 	return nil, nil
 }
+func (bootstrapRepoStub) ListProductsByLocation(_ context.Context, storeID int64, zoneID, shelfID *int64, limit int) ([]domain.Product, error) {
+	return nil, nil
+}
 func (bootstrapRepoStub) GetProductLocation(context.Context, int64, int64) (*domain.ProductLocation, error) {
 	return nil, domain.ErrNotFound
 }
@@ -59,6 +62,9 @@ func (bootstrapRepoStub) ListActivePromotions(context.Context, int64, time.Time,
 	return nil, nil
 }
 func (bootstrapRepoStub) SearchKnowledge(context.Context, int64, string, []string, int) ([]domain.KnowledgeChunk, error) {
+	return nil, nil
+}
+func (bootstrapRepoStub) ListRecentMessages(_ context.Context, sessionID int64, limit int) ([]domain.Message, error) {
 	return nil, nil
 }
 

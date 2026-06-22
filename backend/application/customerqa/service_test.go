@@ -67,14 +67,18 @@ func (f *fakeRepo) SearchFAQ(_ context.Context, storeID int64, query string, lim
 }
 
 func (f *fakeRepo) SearchProducts(_ context.Context, storeID int64, query string, limit int) ([]domain.Product, error) {
-	if strings.Contains(query, "可乐") {
+	if strings.Contains(query, "可乐") || strings.Contains(query, "可口") {
 		return []domain.Product{{ID: 101, Name: "可口可乐", Brand: "可口可乐", Category: "饮料", Aliases: []string{"可乐"}}}, nil
 	}
 	return nil, nil
 }
 
+func (f *fakeRepo) ListProductsByLocation(_ context.Context, storeID int64, zoneID, shelfID *int64, limit int) ([]domain.Product, error) {
+	return nil, nil
+}
+
 func (f *fakeRepo) GetProductLocation(_ context.Context, storeID, productID int64) (*domain.ProductLocation, error) {
-	if productID != 101 {
+	if productID != 101 && productID != 1 {
 		return nil, domain.ErrNotFound
 	}
 	skuID := int64(1001)
@@ -85,11 +89,19 @@ func (f *fakeRepo) GetInventory(_ context.Context, storeID, skuID int64) (*domai
 	if skuID != 1001 {
 		return nil, domain.ErrNotFound
 	}
-	return &domain.Inventory{StoreID: storeID, SKUID: skuID, Quantity: 12, SafetyStock: 3}, nil
+	return &domain.Inventory{
+		StoreID: storeID, SKUID: skuID, ProductID: 101,
+		ProductName: "可口可乐", Spec: "500ml", Price: 3.50,
+		Quantity: 12, SafetyStock: 3,
+	}, nil
 }
 
 func (f *fakeRepo) ListActivePromotions(_ context.Context, storeID int64, now time.Time, limit int) ([]domain.Promotion, error) {
 	return []domain.Promotion{{ID: 1, StoreID: storeID, Title: "饮料第二件半价", Status: "active", StartAt: now.Add(-time.Hour), EndAt: now.Add(time.Hour)}}, nil
+}
+
+func (f *fakeRepo) ListRecentMessages(_ context.Context, sessionID int64, limit int) ([]domain.Message, error) {
+	return f.messages, nil
 }
 
 func TestServiceChat(t *testing.T) {

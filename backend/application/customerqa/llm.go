@@ -1,14 +1,19 @@
 package customerqa
 
-import "context"
+import (
+	"context"
+
+	domain "store-mind/domain/customerqa"
+)
 
 // —— 意图分析层 ——
 
 // IntentRequest 意图分析请求，传入用户消息及上下文。
 type IntentRequest struct {
-	StoreID   int64  // 门店 ID，用于领域限定
-	SessionID int64  // 会话 ID，用于多轮上下文（history 由实现自行获取）
-	Message   string // 用户原始消息
+	StoreID      int64                     // 门店 ID，用于领域限定
+	SessionID    int64                     // 会话 ID，用于多轮上下文（history 由实现自行获取）
+	Message      string                    // 用户原始消息
+	ContextStack []domain.ContextStackItem // S1: 最近 N 轮结构化摘要，用于多轮上下文
 }
 
 // IntentAnalyzer 意图分析器，识别用户消息的意图并做出路由决策。

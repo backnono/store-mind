@@ -29,7 +29,7 @@ func newFallbackOrchestrator(repo domain.Repository, log Logger) Orchestrator {
 }
 
 // routeIntent 基于关键词的意图识别（离线规则引擎）。
-// 优先级从高到低：人工 → 活动 → FAQ → 库存 → 位置 → 不支持。
+// 优先级从高到低：人工 → 活动 → FAQ → 库存 → 位置 → 价格 → 不支持。
 // 注意：关键词是硬编码的，新增规则需改代码，但在 LLM 可用时不会被调用。
 func routeIntent(message string) string {
 	switch {
@@ -43,6 +43,8 @@ func routeIntent(message string) string {
 		return "inventory"
 	case strings.Contains(message, "在哪") || strings.Contains(message, "哪里") || strings.Contains(message, "位置"):
 		return "product_location"
+	case strings.Contains(message, "多少钱") || strings.Contains(message, "价格") || strings.Contains(message, "便宜"):
+		return "price"
 	default:
 		return "unsupported"
 	}
@@ -141,6 +143,7 @@ func (o *fallbackOrchestrator) answerInventory(ctx context.Context, sessionID, m
 	if err != nil {
 		return "暂时无法查询库存信息，你可以稍后再试或联系人工客服。", nil, false, err
 	}
+	credTag := CredibilityTag(inventory)
 	card := ChatCard{
 		Type:     "inventory",
 		SKUID:    inventory.SKUID,
@@ -148,7 +151,7 @@ func (o *fallbackOrchestrator) answerInventory(ctx context.Context, sessionID, m
 		Location: fmt.Sprintf("%s %s 货架", location.ZoneName, location.ShelfCode),
 		Quantity: inventory.Quantity,
 	}
-	return fmt.Sprintf("系统显示%s还有 %d 件，在%s %s 货架。", products[0].Name, inventory.Quantity, location.ZoneName, location.ShelfCode), []ChatCard{card}, false, nil
+	return fmt.Sprintf("系统显示%s还有 %d 件（%s），在%s %s 货架。", products[0].Name, inventory.Quantity, credTag, location.ZoneName, location.ShelfCode), []ChatCard{card}, false, nil
 }
 
 // answerPromotion 处理促销活动查询：

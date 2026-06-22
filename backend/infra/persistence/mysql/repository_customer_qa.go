@@ -49,13 +49,76 @@ func (r *CustomerQARepository) GetSession(ctx context.Context, sessionID int64) 
 }
 
 func (r *CustomerQARepository) CreateMessage(ctx context.Context, message *domain.Message) (*domain.Message, error) {
-	m := MessageModel{SessionID: message.SessionID, Role: message.Role, Content: message.Content, Intent: message.Intent, Confidence: message.Confidence}
+	m := MessageModel{
+		SessionID:  message.SessionID,
+		Role:       message.Role,
+		Content:    message.Content,
+		Intent:     message.Intent,
+		Confidence: message.Confidence,
+	}
+	// S1: 持久化会话上下文字段
+	if message.ContextState != nil {
+		m.ContextState = message.ContextState
+	}
+	if message.FocusEntityIDs != nil {
+		raw, _ := json.Marshal(message.FocusEntityIDs)
+		s := string(raw)
+		m.FocusEntityIDs = &s
+	}
+	if len(message.ContextStack) > 0 {
+		raw, _ := json.Marshal(message.ContextStack)
+		s := string(raw)
+		m.ContextStack = &s
+	}
 	if err := r.db.WithContext(ctx).Create(&m).Error; err != nil {
 		return nil, err
 	}
 	message.ID = m.ID
 	message.CreatedAt = m.CreatedAt
 	return message, nil
+}
+
+// ListRecentMessages 查询指定会话最近 N 条消息（按时间升序），用于加载会话上下文。
+func (r *CustomerQARepository) ListRecentMessages(ctx context.Context, sessionID int64, limit int) ([]domain.Message, error) {
+	var rows []MessageModel
+	if err := r.db.WithContext(ctx).
+		Where("session_id = ?", sessionID).
+		Order("id ASC").
+		Limit(limit).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	items := make([]domain.Message, 0, len(rows))
+	for _, row := range rows {
+		msg := domain.Message{
+			ID:        row.ID,
+			SessionID: row.SessionID,
+			Role:      row.Role,
+			Content:   row.Content,
+			Intent:    row.Intent,
+			CreatedAt: row.CreatedAt,
+		}
+		if row.Confidence != nil {
+			msg.Confidence = row.Confidence
+		}
+		if row.ContextState != nil {
+			msg.ContextState = row.ContextState
+		}
+		if row.FocusEntityIDs != nil {
+			var ids domain.FocusEntityIDs
+			if err := json.Unmarshal([]byte(*row.FocusEntityIDs), &ids); err == nil {
+				msg.FocusEntityIDs = &ids
+			}
+		}
+		if row.ContextStack != nil {
+			var stack []domain.ContextStackItem
+			if err := json.Unmarshal([]byte(*row.ContextStack), &stack); err == nil {
+				msg.ContextStack = stack
+			}
+		}
+		items = append(items, msg)
+	}
+	return items, nil
 }
 
 func (r *CustomerQARepository) CreateToolCall(ctx context.Context, toolCall *domain.ToolCall) (*domain.ToolCall, error) {
@@ -193,6 +256,52 @@ func (r *CustomerQARepository) SearchProducts(ctx context.Context, storeID int64
 	return out, nil
 }
 
+// ListProductsByLocation 按门店+可选区域/货架查询商品列表。
+// zoneID 和 shelfID 为可选过滤条件，为 nil 时不过滤。
+func (r *CustomerQARepository) ListProductsByLocation(ctx context.Context, storeID int64, zoneID, shelfID *int64, limit int) ([]domain.Product, error) {
+	type productRow struct {
+		ID       int64
+		Name     string
+		Brand    string
+		Category string
+		Aliases  string
+		Tags     string
+		Status   string
+	}
+	var rows []productRow
+	db := r.db.WithContext(ctx).
+		Table("product AS p").
+		Select("DISTINCT p.id, p.name, p.brand, p.category, p.aliases, p.tags, p.status").
+		Joins("JOIN product_location AS pl ON pl.product_id = p.id AND pl.store_id = ?", storeID).
+		Where("p.status = ?", "active")
+
+	if zoneID != nil {
+		db = db.Where("pl.zone_id = ?", *zoneID)
+	}
+	if shelfID != nil {
+		db = db.Where("pl.shelf_id = ?", *shelfID)
+	}
+
+	if err := db.Order("p.id DESC").Limit(limit).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	out := make([]domain.Product, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, domain.Product{
+			ID:       row.ID,
+			Name:     row.Name,
+			Brand:    row.Brand,
+			Category: row.Category,
+			Aliases:  decodeJSONList(row.Aliases),
+			Tags:     decodeJSONList(row.Tags),
+			Status:   row.Status,
+		})
+	}
+	return out, nil
+}
+
+// GetProductLocation 查询指定商品在门店的具体位置（区域 + 货架 + 层）。
 func (r *CustomerQARepository) GetProductLocation(ctx context.Context, storeID, productID int64) (*domain.ProductLocation, error) {
 	type locationRow struct {
 		ID           int64
@@ -248,6 +357,7 @@ func (r *CustomerQARepository) GetInventory(ctx context.Context, storeID, skuID 
 		ProductName    string
 		SKUCode        string
 		Spec           string
+		Price          float64
 		Quantity       int
 		SafetyStock    int
 		LastVerifiedAt *time.Time
@@ -258,7 +368,7 @@ func (r *CustomerQARepository) GetInventory(ctx context.Context, storeID, skuID 
 	var row inventoryRow
 	err := r.db.WithContext(ctx).
 		Table("inventory AS i").
-		Select("i.id, i.store_id, i.sku_id, s.product_id, p.name AS product_name, s.barcode AS sku_code, s.spec, i.quantity, i.safety_stock, i.last_verified_at, i.update_source, i.updated_at").
+		Select("i.id, i.store_id, i.sku_id, s.product_id, p.name AS product_name, s.barcode AS sku_code, s.spec, s.price, i.quantity, i.safety_stock, i.last_verified_at, i.update_source, i.updated_at").
 		Joins("JOIN sku AS s ON s.id = i.sku_id").
 		Joins("JOIN product AS p ON p.id = s.product_id").
 		Where("i.store_id = ? AND i.sku_id = ?", storeID, skuID).
@@ -278,6 +388,7 @@ func (r *CustomerQARepository) GetInventory(ctx context.Context, storeID, skuID 
 		ProductName:    row.ProductName,
 		SKUCode:        row.SKUCode,
 		Spec:           row.Spec,
+		Price:          row.Price,
 		Quantity:       row.Quantity,
 		SafetyStock:    row.SafetyStock,
 		LastVerifiedAt: row.LastVerifiedAt,

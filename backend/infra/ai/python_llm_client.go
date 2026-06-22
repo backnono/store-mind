@@ -11,6 +11,8 @@ import (
 	"time"
 
 	app "store-mind/application/customerqa"
+	domain "store-mind/domain/customerqa"
+	"store-mind/infra/retrieval"
 )
 
 const intentRequestTimeout = 8 * time.Second
@@ -133,7 +135,7 @@ func (c *PythonLLMClient) ComposeAnswer(ctx context.Context, req app.AnswerReque
 // ── 指代消解辅助方法 ─────────────────────────────────
 
 // ResolveAnaphora 调用 Python /llm/resolve 进行指代消解
-func (c *PythonLLMClient) ResolveAnaphora(ctx context.Context, message string, contextStack []any, focusEntities []any) (*ResolveResult, error) {
+func (c *PythonLLMClient) ResolveAnaphora(ctx context.Context, message string, contextStack []domain.ContextStackItem, focusEntities *domain.FocusEntityIDs) (*app.AnaphoraLLMResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
@@ -143,15 +145,55 @@ func (c *PythonLLMClient) ResolveAnaphora(ctx context.Context, message string, c
 		"focus_entities": focusEntities,
 	}
 
-	resp, err := c.postJSON(ctx, "/llm/resolve", body)
+	raw, err := c.postJSONRaw(ctx, "/llm/resolve", body)
 	if err != nil {
 		return nil, fmt.Errorf("python llm /llm/resolve failed: %w", err)
 	}
-	return &ResolveResult{
-		ResolvedEntities: resp.Extra["resolved_entities"],
-		Confidence:       resp.ExtraConfidence,
-		Explanation:      resp.ExtraExplanation,
+
+	// 解析 resolved_entities JSON
+	type resolveResp struct {
+		ResolvedEntities []domain.ResolvedEntity `json:"resolved_entities"`
+		Confidence       float64                 `json:"confidence"`
+		Explanation      string                  `json:"explanation"`
+	}
+	var result resolveResp
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, fmt.Errorf("parse /llm/resolve response: %w", err)
+	}
+	return &app.AnaphoraLLMResult{
+		ResolvedEntities: result.ResolvedEntities,
+		Confidence:       result.Confidence,
+		Explanation:      result.Explanation,
 	}, nil
+}
+
+// ── 语义重排序 ─────────────────────────────────────
+
+// SemanticRankFAQ 调用 Python /llm/semantic_search 对 FAQ 候选进行语义重排序。
+// 实现 retrieval.SemanticReranker 接口。
+// 超时 4s，失败时返回错误，由调用方降级回退。
+func (c *PythonLLMClient) SemanticRankFAQ(ctx context.Context, query string, candidates []retrieval.SemanticCandidate) ([]retrieval.SemanticRankResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+
+	body := map[string]any{
+		"query":      query,
+		"candidates": candidates,
+	}
+
+	raw, err := c.postJSONRaw(ctx, "/llm/semantic_search", body)
+	if err != nil {
+		return nil, fmt.Errorf("python llm /llm/semantic_search failed: %w", err)
+	}
+
+	type rankResp struct {
+		Ranked []retrieval.SemanticRankResult `json:"ranked"`
+	}
+	var result rankResp
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, fmt.Errorf("parse /llm/semantic_search response: %w", err)
+	}
+	return result.Ranked, nil
 }
 
 // ── 内部 HTTP 辅助方法 ───────────────────────────────

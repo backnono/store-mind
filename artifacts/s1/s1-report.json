@@ -1,0 +1,90 @@
+{
+  "mode": "local",
+  "started_at": "2026-06-22T19:00:49+0800",
+  "passed": false,
+  "summary": {
+    "total": 13,
+    "passed": 12,
+    "failed": 1
+  },
+  "checks": [
+    {
+      "gate": "environment",
+      "name": "Go backend health",
+      "passed": true,
+      "detail": "HTTP 200: {'status': 'ok'}"
+    },
+    {
+      "gate": "environment",
+      "name": "Python sidecar health",
+      "passed": true,
+      "detail": "HTTP 200: {'status': 'ok', 'model': 'deepseek-v4-pro'}"
+    },
+    {
+      "gate": "environment",
+      "name": "MySQL connectivity",
+      "passed": true,
+      "detail": "SELECT 1"
+    },
+    {
+      "gate": "entry",
+      "name": "first_open returns preset questions",
+      "passed": true,
+      "detail": "chips=4, location=True, promo=True"
+    },
+    {
+      "gate": "entry",
+      "name": "zone_scan returns shelf products",
+      "passed": true,
+      "detail": "cards=2"
+    },
+    {
+      "gate": "guidance",
+      "name": "location answer has guidance chips",
+      "passed": true,
+      "detail": "chips=2, inventory=True, promo=False"
+    },
+    {
+      "gate": "credibility",
+      "name": "inventory answer has credibility level",
+      "passed": false,
+      "detail": "no credibility marker in answer and no inventory card"
+    },
+    {
+      "gate": "sidecar-resolve",
+      "name": "/llm/resolve returns resolved_entities",
+      "passed": true,
+      "detail": "entities=1, confidence=0.95"
+    },
+    {
+      "gate": "sidecar-resolve",
+      "name": "Go client routes resolved_entities to orchestrator",
+      "passed": true,
+      "detail": "R2_intent=clarify, db_focus=True"
+    },
+    {
+      "gate": "multi-turn",
+      "name": "follow-up '还有几瓶/多少钱' inherits product",
+      "passed": true,
+      "detail": "R2_intent=clarify, R3_intent=clarify"
+    },
+    {
+      "gate": "persistence",
+      "name": "context_state persisted",
+      "passed": true,
+      "detail": "message_id=41, context_state=product_focus"
+    },
+    {
+      "gate": "persistence",
+      "name": "focus_entity_ids persisted",
+      "passed": true,
+      "detail": "message_id=41, focus_entity_ids=NULL"
+    },
+    {
+      "gate": "persistence",
+      "name": "context_stack persisted",
+      "passed": true,
+      "detail": "message_id=41, context_stack=[{\"turn\": 1, \"intent\": \"product_location\", \"system_action\": \"tool\", \"system_summ"
+    }
+  ]
+}

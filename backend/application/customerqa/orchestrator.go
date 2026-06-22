@@ -18,6 +18,47 @@ const (
 	RouteFallback = "fallback" // 全部失败或意图不明时走降级编排器
 )
 
+// —— S2.2: 复合意图辅助 ——
+
+// subIntents 将复合意图（逗号分隔）拆分为独立意图列表。
+// 单个意图直接返回单元素切片。
+func subIntents(intent string) []string {
+	raw := strings.Split(intent, ",")
+	result := make([]string, 0, len(raw))
+	for _, s := range raw {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			result = append(result, s)
+		}
+	}
+	if len(result) == 0 {
+		return []string{intent}
+	}
+	return result
+}
+
+// isCompound 判断意图是否为复合意图。
+func isCompound(intent string) bool {
+	return strings.Contains(intent, ",")
+}
+
+// routeForIntent 将单个意图映射到路由类型。
+// inventory / product_location / price / promotion → tool
+// faq → rag
+// 其他 → fallback
+func routeForIntent(intent string) string {
+	switch intent {
+	case "inventory", "product_location", "price", "promotion":
+		return RouteTool
+	case "faq":
+		return RouteRAG
+	case "product_policy":
+		return RouteHybrid
+	default:
+		return RouteFallback
+	}
+}
+
 // —— 编排器接口与数据结构 ——
 
 // Orchestrator 定义 Chat 流程的编排协议：意图识别 → 路由分发 → 证据收集 → 答案生成。
@@ -27,13 +68,15 @@ type Orchestrator interface {
 
 // OrchestratorRequest 编排入参，由 service.Chat 组装后传入。
 type OrchestratorRequest struct {
-	RequestID string
-	StoreID   int64
-	SessionID int64
-	MessageID int64  // 已持久化的用户消息 ID，供 fallback 记录 tool_call 用
-	UserID    *int64 // 可选用户 ID
-	Channel   string
-	Message   string // 用户原始消息
+	RequestID        string
+	StoreID          int64
+	SessionID        int64
+	MessageID        int64  // 已持久化的用户消息 ID，供 fallback 记录 tool_call 用
+	UserID           *int64 // 可选用户 ID
+	Channel          string
+	Message          string                  // 用户原始消息
+	SessionContext   *SessionContext         // S1: 会话上下文（状态 + context_stack）
+	ResolvedEntities []domain.ResolvedEntity // S1: ContextResolver 消解后的实体
 }
 
 // Decision 单次编排决策，描述意图识别的完整输出。
@@ -107,11 +150,12 @@ func NewDefaultOrchestrator(
 	}
 }
 
-// Run 主编排流程：
-//  1. 意图分析（analyzer 为 nil 时直接走 fallback）
-//  2. 路由标准化（按意图映射为 tool/rag/hybrid/fallback）
-//  3. 证据收集（按路由分派到 tool/rag/hybrid 收集器）
-//  4. 答案生成（有证据时调用 composer，无证据返回兜底话术）
+// Run 主编排流程（S1 升级版）：
+//  1. 检查衰减状态（长时间无输入 → 返回 Context Bridge）
+//  2. 意图分析（传入 context_stack 实现多轮上下文）
+//  3. 路由标准化
+//  4. 证据收集（含库存可信度计算）
+//  5. 答案生成
 //
 // 任何一步出错均尝试 fallback 兜底。
 func (o *defaultOrchestrator) Run(ctx context.Context, req OrchestratorRequest) (OrchestratorResult, error) {
@@ -123,16 +167,31 @@ func (o *defaultOrchestrator) Run(ctx context.Context, req OrchestratorRequest) 
 		return OrchestratorResult{}, nil
 	}
 
-	// 步骤 1：意图分析
-	decision, err := o.analyzer.AnalyzeIntent(
-		ctx, IntentRequest{
-			StoreID:   req.StoreID,
-			SessionID: req.SessionID,
-			Message:   req.Message,
-		},
-	)
+	// S1: 衰减检查 — 长时间无输入时返回 Context Bridge
+	if req.SessionContext != nil && req.SessionContext.DecayAction == DecayConfirmResume {
+		return OrchestratorResult{
+			Decision: Decision{
+				Intent:       "resume",
+				Route:        RouteFallback,
+				Confidence:   1.0,
+				FallbackUsed: true,
+			},
+			Answer: "对话已经结束很久了。请问这次需要我帮您什么吗？",
+		}, nil
+	}
+
+	// 步骤 1：意图分析（传入 context_stack 实现多轮上下文）
+	intentReq := IntentRequest{
+		StoreID:   req.StoreID,
+		SessionID: req.SessionID,
+		Message:   req.Message,
+	}
+	// S1: 附加 context_stack 摘要到意图分析请求
+	if req.SessionContext != nil && len(req.SessionContext.ContextStack) > 0 {
+		intentReq.ContextStack = req.SessionContext.ContextStack
+	}
+	decision, err := o.analyzer.AnalyzeIntent(ctx, intentReq)
 	if err != nil {
-		// 意图分析失败 → fallback
 		if o.fallback != nil {
 			return o.fallback.Run(ctx, req)
 		}
@@ -187,15 +246,41 @@ func (o *defaultOrchestrator) Run(ctx context.Context, req OrchestratorRequest) 
 
 // normalizeRoute 将意图标签映射为标准路由类型。
 // 映射规则：
-//   - inventory / product_location → RouteTool（查结构化数据）
+//   - inventory / product_location / price / promotion → RouteTool（查结构化数据）
 //   - faq → RouteRAG（查知识库文本）
 //   - product_policy → RouteHybrid（先查结构化再补 FAQ）
+//   - S2.2: 复合意图 → 合并各子意图路由（混合 type+rag → hybrid，纯 type → tool，纯 rag → rag）
 //   - 若 IntentAnalyzer 已返回有效 Route 则直接沿用
 //   - 其余 → RouteFallback
 func (o *defaultOrchestrator) normalizeRoute(decision Decision) string {
 	intent := strings.TrimSpace(decision.Intent)
+
+	// S2.2: 复合意图路由合并
+	if isCompound(intent) {
+		hasTool, hasRAG := false, false
+		for _, si := range subIntents(intent) {
+			r := routeForIntent(si)
+			if r == RouteTool || r == RouteHybrid {
+				hasTool = true
+			}
+			if r == RouteRAG || r == RouteHybrid {
+				hasRAG = true
+			}
+		}
+		if hasTool && hasRAG {
+			return RouteHybrid
+		}
+		if hasTool {
+			return RouteTool
+		}
+		if hasRAG {
+			return RouteRAG
+		}
+		return RouteFallback
+	}
+
 	switch {
-	case intent == "inventory" || intent == "product_location":
+	case intent == "inventory" || intent == "product_location" || intent == "price" || intent == "promotion":
 		return RouteTool
 	case intent == "faq":
 		return RouteRAG
@@ -209,15 +294,21 @@ func (o *defaultOrchestrator) normalizeRoute(decision Decision) string {
 }
 
 // collectEvidence 按路由类型分派到不同的证据收集策略：
-//   - tool:   查询数据库获取结构化数据（商品、库存、位置、活动）
+//   - tool:   查询数据库获取结构化数据（商品、库存、位置、活动、价格）
 //   - rag:    从知识库检索 FAQ 文本
 //   - hybrid: 先 tool 再 rag，合并证据
+//   - S2.2: 复合意图 → 对各子意图并行收集证据，合并结果
 //   - 其他:   委托 fallback 编排器
 func (o *defaultOrchestrator) collectEvidence(
 	ctx context.Context,
 	req OrchestratorRequest,
 	decision Decision,
 ) ([]Evidence, []ChatCard, error) {
+	// S2.2: 复合意图 — 对各子意图分别收集证据并合并
+	if isCompound(decision.Intent) {
+		return o.collectCompoundEvidence(ctx, req, decision)
+	}
+
 	switch decision.Route {
 	case RouteTool:
 		return o.collectToolEvidence(ctx, req, decision)
@@ -250,11 +341,67 @@ func (o *defaultOrchestrator) collectEvidence(
 	}
 }
 
+// collectCompoundEvidence S2.2: 复合意图证据收集。
+// 将意图字符串按逗号拆分为多个子意图，对每个子意图分别收集证据，最后合并。
+func (o *defaultOrchestrator) collectCompoundEvidence(
+	ctx context.Context,
+	req OrchestratorRequest,
+	decision Decision,
+) ([]Evidence, []ChatCard, error) {
+	allEvidence := make([]Evidence, 0)
+	allCards := make([]ChatCard, 0)
+	query := decision.RewrittenQuery
+	if strings.TrimSpace(query) == "" {
+		query = req.Message
+	}
+	resolvedProductID := o.resolvedProductID(req)
+
+	seenEvidence := map[string]bool{} // 去重
+
+	for _, si := range subIntents(decision.Intent) {
+		subDecision := Decision{
+			Intent:         si,
+			RewrittenQuery: query,
+			Route:          routeForIntent(si),
+		}
+
+		var evidence []Evidence
+		var cards []ChatCard
+		var err error
+
+		if routeForIntent(si) == RouteTool {
+			evidence, cards, err = o.collectSingleIntentToolEvidence(ctx, req, subDecision, query, resolvedProductID)
+		} else if routeForIntent(si) == RouteRAG {
+			evidence, _, err = o.collectRAGEvidence(ctx, req, subDecision)
+		}
+
+		if err != nil {
+			o.log.Warn("compound_evidence_partial_fail", "sub_intent", si, "error", err)
+			continue // 子意图失败不中断整体流程
+		}
+
+		// 去重合并
+		for _, ev := range evidence {
+			key := ev.Source + ":" + ev.Kind + ":" + fmt.Sprintf("%d", ev.RecordID)
+			if !seenEvidence[key] {
+				seenEvidence[key] = true
+				allEvidence = append(allEvidence, ev)
+			}
+		}
+		allCards = append(allCards, cards...)
+	}
+
+	return allEvidence, allCards, nil
+}
+
 // collectToolEvidence 按意图类型查询数据库获取结构化证据：
 //   - inventory:      搜索商品 → 查位置 → 查库存 → 合并返回 evidence + card
 //   - product_policy: 同 inventory（产品政策类问题常包含库存信息）
 //   - product_location: 搜索商品 → 查位置 → 返回位置 evidence + card
+//   - price:          搜索商品 → 查库存（含价格）→ 返回价格 evidence + card
 //   - promotion:      列活动列表 → 返回活动 evidence + card
+//
+// S1: 当 req.ResolvedEntities 中有消解后的 product_id 时，跳过 SearchProducts 直接查询。
 func (o *defaultOrchestrator) collectToolEvidence(
 	ctx context.Context,
 	req OrchestratorRequest,
@@ -264,129 +411,276 @@ func (o *defaultOrchestrator) collectToolEvidence(
 	if strings.TrimSpace(query) == "" {
 		query = req.Message // 无改写则用原始消息
 	}
+	resolvedProductID := o.resolvedProductID(req)
+	return o.collectSingleIntentToolEvidence(ctx, req, decision, query, resolvedProductID)
+}
 
+// collectSingleIntentToolEvidence S2.2: 对单个意图执行 Tool 层证据收集。
+// 与 collectToolEvidence 等价，但接受显式传递的 query 和 resolvedProductID
+// 供复合意图场景复用。
+func (o *defaultOrchestrator) collectSingleIntentToolEvidence(
+	ctx context.Context,
+	req OrchestratorRequest,
+	decision Decision,
+	query string,
+	resolvedProductID *int64,
+) ([]Evidence, []ChatCard, error) {
 	switch decision.Intent {
 	case "inventory", "product_policy":
-		// 库存 / 产品政策：搜索商品 → 查位置 → 查库存 → 拼装 evidence+card
-		products, err := o.repo.SearchProducts(ctx, req.StoreID, extractProductQuery(query), 5)
-		if err != nil {
-			return nil, nil, err
-		}
-		if len(products) == 0 {
-			return nil, nil, nil
-		}
-		location, err := o.repo.GetProductLocation(ctx, req.StoreID, products[0].ID)
-		if err != nil {
-			return nil, nil, err
-		}
-		// 商品只有位置、无 SKU 关联时仅返回位置信息
-		if location.SKUID == nil {
-			return []Evidence{
-					{
-						Source:   "tool",
-						Kind:     "product_location",
-						RecordID: products[0].ID,
-						Title:    products[0].Name,
-						Content:  fmt.Sprintf("%s 在 %s %s", products[0].Name, location.ZoneName, location.ShelfCode),
-					},
-				}, []ChatCard{
-					{
-						Type:     "product",
-						Name:     products[0].Name,
-						Location: fmt.Sprintf("%s %s 货架", location.ZoneName, location.ShelfCode),
-					},
-				}, nil
-		}
-		// 查库存
-		inventory, err := o.repo.GetInventory(ctx, req.StoreID, *location.SKUID)
-		if err != nil {
-			return nil, nil, err
-		}
-		evidence := []Evidence{
-			{
-				Source:   "tool",
-				Kind:     "inventory",
-				RecordID: inventory.SKUID,
-				Title:    products[0].Name,
-				Content:  fmt.Sprintf("系统显示%s还有 %d 件", products[0].Name, inventory.Quantity),
-			},
-		}
-		card := ChatCard{
-			Type:     "inventory",
-			SKUID:    inventory.SKUID,
-			Name:     products[0].Name,
-			Location: fmt.Sprintf("%s %s 货架", location.ZoneName, location.ShelfCode),
-			Quantity: inventory.Quantity,
-		}
-		return evidence, []ChatCard{card}, nil
-
+		return o.collectInventoryEvidence(ctx, req, decision, query, resolvedProductID)
 	case "product_location":
-		// 商品位置：搜索商品 → 查位置 → 拼装 evidence+card
-		products, err := o.repo.SearchProducts(ctx, req.StoreID, extractProductQuery(query), 5)
-		if err != nil {
-			return nil, nil, err
-		}
-		if len(products) == 0 {
-			return nil, nil, nil
-		}
-		location, err := o.repo.GetProductLocation(ctx, req.StoreID, products[0].ID)
-		if err != nil {
-			return nil, nil, err
-		}
-		evidence := []Evidence{
-			{
-				Source:   "tool",
-				Kind:     "product_location",
-				RecordID: products[0].ID,
-				Title:    products[0].Name,
-				Content: fmt.Sprintf(
-					"%s 在 %s %s 货架第%d层",
-					products[0].Name,
-					location.ZoneName,
-					location.ShelfCode,
-					location.LayerNo,
-				),
-			},
-		}
-		card := ChatCard{
-			Type:     "product",
-			Name:     products[0].Name,
-			Location: fmt.Sprintf("%s %s 货架第%d层", location.ZoneName, location.ShelfCode, location.LayerNo),
-		}
-		if location.SKUID != nil {
-			card.SKUID = *location.SKUID
-		}
-		return evidence, []ChatCard{card}, nil
-
+		return o.collectLocationEvidence(ctx, req, decision, query, resolvedProductID)
+	case "price":
+		return o.collectPriceEvidence(ctx, req, decision, query, resolvedProductID)
 	case "promotion":
-		// 活动：列出当前有效活动 → 拼装 evidence+card
-		items, err := o.repo.ListActivePromotions(ctx, req.StoreID, time.Now(), 5)
-		if err != nil {
-			return nil, nil, err
-		}
-		if len(items) == 0 {
-			return nil, nil, nil
-		}
-		evidence := []Evidence{
-			{
-				Source:   "tool",
-				Kind:     "promotion",
-				RecordID: items[0].ID,
-				Title:    items[0].Title,
-				Content:  items[0].Description,
-			},
-		}
-		card := ChatCard{
-			Type:     "promotion",
-			Title:    items[0].Title,
-			Content:  items[0].Description,
-			Validity: items[0].EndAt.Format("01-02 15:04"),
-		}
-		return evidence, []ChatCard{card}, nil
-
+		return o.collectPromotionEvidence(ctx, req, decision)
 	default:
 		return nil, nil, nil
 	}
+}
+
+// resolvedProductID 从 ResolvedEntities 中提取首个 product_id。
+func (o *defaultOrchestrator) resolvedProductID(req OrchestratorRequest) *int64 {
+	for _, e := range req.ResolvedEntities {
+		if e.Type == "product" && e.ProductID != nil {
+			return e.ProductID
+		}
+	}
+	return nil
+}
+
+// collectInventoryEvidence 收集库存证据（S1 重构版）。
+func (o *defaultOrchestrator) collectInventoryEvidence(
+	ctx context.Context,
+	req OrchestratorRequest,
+	decision Decision,
+	query string,
+	resolvedProductID *int64,
+) ([]Evidence, []ChatCard, error) {
+	productID, productName, err := o.resolveProduct(ctx, req, query, resolvedProductID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if productID == nil {
+		return nil, nil, nil
+	}
+
+	location, err := o.repo.GetProductLocation(ctx, req.StoreID, *productID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if location.SKUID == nil {
+		return []Evidence{{
+				Source: "tool", Kind: "product_location", RecordID: *productID,
+				Title: productName, Content: fmt.Sprintf("%s 在 %s %s", productName, location.ZoneName, location.ShelfCode),
+			}}, []ChatCard{{
+				Type: "product", Name: productName,
+				Location: fmt.Sprintf("%s %s 货架", location.ZoneName, location.ShelfCode),
+			}}, nil
+	}
+
+	inventory, err := o.repo.GetInventory(ctx, req.StoreID, *location.SKUID)
+	if err != nil {
+		return nil, nil, err
+	}
+	credTag := CredibilityTag(inventory)
+	evidence := []Evidence{{
+		Source: "tool", Kind: "inventory", RecordID: inventory.SKUID,
+		Title:   productName,
+		Content: fmt.Sprintf("系统显示%s还有 %d 件 · %s", productName, inventory.Quantity, credTag),
+	}}
+	card := ChatCard{
+		Type: "inventory", SKUID: inventory.SKUID, Name: productName,
+		Location: fmt.Sprintf("%s %s 货架", location.ZoneName, location.ShelfCode),
+		Quantity: inventory.Quantity,
+	}
+	return evidence, []ChatCard{card}, nil
+}
+
+// collectLocationEvidence 收集位置证据（S1 重构版）。
+func (o *defaultOrchestrator) collectLocationEvidence(
+	ctx context.Context,
+	req OrchestratorRequest,
+	decision Decision,
+	query string,
+	resolvedProductID *int64,
+) ([]Evidence, []ChatCard, error) {
+	productID, productName, err := o.resolveProduct(ctx, req, query, resolvedProductID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if productID == nil {
+		return nil, nil, nil
+	}
+
+	location, err := o.repo.GetProductLocation(ctx, req.StoreID, *productID)
+	if err != nil {
+		return nil, nil, err
+	}
+	evidence := []Evidence{{
+		Source: "tool", Kind: "product_location", RecordID: *productID,
+		Title:   productName,
+		Content: fmt.Sprintf("%s 在 %s %s 货架第%d层", productName, location.ZoneName, location.ShelfCode, location.LayerNo),
+	}}
+	card := ChatCard{
+		Type: "product", Name: productName,
+		Location: fmt.Sprintf("%s %s 货架第%d层", location.ZoneName, location.ShelfCode, location.LayerNo),
+	}
+	if location.SKUID != nil {
+		card.SKUID = *location.SKUID
+	}
+	return evidence, []ChatCard{card}, nil
+}
+
+// collectPromotionEvidence 收集活动证据。
+func (o *defaultOrchestrator) collectPromotionEvidence(
+	ctx context.Context,
+	req OrchestratorRequest,
+	decision Decision,
+) ([]Evidence, []ChatCard, error) {
+	items, err := o.repo.ListActivePromotions(ctx, req.StoreID, time.Now(), 5)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(items) == 0 {
+		return nil, nil, nil
+	}
+	evidence := []Evidence{{
+		Source: "tool", Kind: "promotion", RecordID: items[0].ID,
+		Title: items[0].Title, Content: items[0].Description,
+	}}
+	card := ChatCard{
+		Type: "promotion", Title: items[0].Title,
+		Content: items[0].Description, Validity: items[0].EndAt.Format("01-02 15:04"),
+	}
+	return evidence, []ChatCard{card}, nil
+}
+
+// collectPriceEvidence S2.3: 收集价格证据。
+// 支持单商品价格查询（"可乐多少钱"）和多商品价格对比（"可乐和雪碧哪个便宜"）。
+// 通过 resolveProduct 查找商品 → 获取 Inventory（含 Price）→ 返回价格证据。
+func (o *defaultOrchestrator) collectPriceEvidence(
+	ctx context.Context,
+	req OrchestratorRequest,
+	decision Decision,
+	query string,
+	resolvedProductID *int64,
+) ([]Evidence, []ChatCard, error) {
+	// 路径 A: ResolvedEntities 有消解结果 — 直接按 product_id 查询价格
+	if resolvedProductID != nil {
+		return o.collectSingleProductPrice(ctx, req, *resolvedProductID)
+	}
+
+	// 路径 B: 搜索所有匹配商品，可能为多商品价格对比
+	products, err := o.repo.SearchProducts(ctx, req.StoreID, extractProductQuery(query), 5)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(products) == 0 {
+		return nil, nil, nil
+	}
+
+	evidence := make([]Evidence, 0, len(products))
+	cards := make([]ChatCard, 0, len(products))
+	for _, p := range products {
+		loc, err := o.repo.GetProductLocation(ctx, req.StoreID, p.ID)
+		if err != nil || loc.SKUID == nil {
+			// 无位置/SKU 时仅返回位置信息
+			if loc != nil {
+				evidence = append(evidence, Evidence{
+					Source: "tool", Kind: "price", RecordID: p.ID,
+					Title: p.Name, Content: fmt.Sprintf("%s 在 %s %s，价格暂未查到", p.Name, loc.ZoneName, loc.ShelfCode),
+				})
+			}
+			continue
+		}
+		inv, err := o.repo.GetInventory(ctx, req.StoreID, *loc.SKUID)
+		if err != nil {
+			continue
+		}
+		priceStr := fmt.Sprintf("¥%.2f", inv.Price)
+		if inv.Spec != "" {
+			priceStr += fmt.Sprintf(" / %s", inv.Spec)
+		}
+		evContent := fmt.Sprintf("%s · %s · 在 %s %s",
+			p.Name, priceStr, loc.ZoneName, loc.ShelfCode)
+		evidence = append(evidence, Evidence{
+			Source: "tool", Kind: "price", RecordID: p.ID,
+			Title: p.Name, Content: evContent,
+		})
+		cards = append(cards, ChatCard{
+			Type: "price", Name: p.Name,
+			Location: fmt.Sprintf("%s %s 货架", loc.ZoneName, loc.ShelfCode),
+			SKUID:    inv.SKUID,
+		})
+	}
+	return evidence, cards, nil
+}
+
+// collectSingleProductPrice S2.3: 查询单个商品的价格（按 product_id 直查）。
+func (o *defaultOrchestrator) collectSingleProductPrice(
+	ctx context.Context,
+	req OrchestratorRequest,
+	productID int64,
+) ([]Evidence, []ChatCard, error) {
+	loc, err := o.repo.GetProductLocation(ctx, req.StoreID, productID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if loc.SKUID == nil {
+		return []Evidence{{
+			Source: "tool", Kind: "price", RecordID: productID,
+			Title: "商品", Content: fmt.Sprintf("在 %s %s，价格暂未查到", loc.ZoneName, loc.ShelfCode),
+		}}, nil, nil
+	}
+	inv, err := o.repo.GetInventory(ctx, req.StoreID, *loc.SKUID)
+	if err != nil {
+		return nil, nil, err
+	}
+	priceStr := fmt.Sprintf("¥%.2f", inv.Price)
+	if inv.Spec != "" {
+		priceStr += fmt.Sprintf(" / %s", inv.Spec)
+	}
+	return []Evidence{{
+			Source: "tool", Kind: "price", RecordID: productID,
+			Title: inv.ProductName,
+			Content: fmt.Sprintf("%s · %s · 在 %s %s",
+				inv.ProductName, priceStr, loc.ZoneName, loc.ShelfCode),
+		}}, []ChatCard{{
+			Type: "price", Name: inv.ProductName,
+			Location: fmt.Sprintf("%s %s 货架", loc.ZoneName, loc.ShelfCode),
+			SKUID:    inv.SKUID,
+		}}, nil
+}
+
+// resolveProduct 解析查询到的商品：优先用 resolvedProductID 直接查，否则 SearchProducts。
+// 返回 productID、productName、error。
+func (o *defaultOrchestrator) resolveProduct(
+	ctx context.Context,
+	req OrchestratorRequest,
+	query string,
+	resolvedProductID *int64,
+) (*int64, string, error) {
+	if resolvedProductID != nil {
+		// S1: L1/L2 已消解出具体 product_id → 验证存在即可
+		_, err := o.repo.GetProductLocation(ctx, req.StoreID, *resolvedProductID)
+		if err != nil {
+			return nil, "", err
+		}
+		return resolvedProductID, "商品", nil // productName 由后续 inventory 查询补充
+	}
+
+	// 传统路径：SearchProducts → 取第一条
+	products, err := o.repo.SearchProducts(ctx, req.StoreID, extractProductQuery(query), 5)
+	if err != nil {
+		return nil, "", err
+	}
+	if len(products) == 0 {
+		return nil, "", nil
+	}
+	pid := products[0].ID
+	return &pid, products[0].Name, nil
 }
 
 // collectRAGEvidence 通过 Retriever 从知识库召回 FAQ 证据。

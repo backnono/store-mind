@@ -30,6 +30,10 @@ type chatRequest struct {
 	UserID    *int64 `json:"user_id"`
 	Channel   string `json:"channel"`
 	Message   string `json:"message"`
+	// S1: 入口适配
+	EntryMode string `json:"entry_mode"` // first_open / zone_scan / resume / product_detail / promo
+	ZoneID    *int64 `json:"zone_id"`
+	ShelfID   *int64 `json:"shelf_id"`
 }
 
 func (h *CustomerQAHandler) Chat(c *gin.Context) {
@@ -56,6 +60,10 @@ func (h *CustomerQAHandler) Chat(c *gin.Context) {
 			UserID:    req.UserID,
 			Channel:   req.Channel,
 			Message:   req.Message,
+			// S1: 入口适配
+			EntryMode: req.EntryMode,
+			ZoneID:    req.ZoneID,
+			ShelfID:   req.ShelfID,
 		},
 	)
 	if err != nil {
