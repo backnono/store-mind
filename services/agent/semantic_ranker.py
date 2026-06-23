@@ -9,7 +9,7 @@ from typing import Optional
 
 from openai import AsyncOpenAI
 
-SEMANTIC_RANK_TIMEOUT_SECONDS = 3.5  # 端点层 4s，留 0.5s 余量
+SEMANTIC_RANK_TIMEOUT_SECONDS = 5.0
 
 SEMANTIC_RANK_SYSTEM_PROMPT = """你是无人超市数字店员「小王」的 FAQ 语义排序器。
 

@@ -9,6 +9,8 @@ from typing import Optional
 
 from openai import AsyncOpenAI
 
+ANSWER_LLM_TIMEOUT_SECONDS = 5.0
+
 ANSWER_SYSTEM_PROMPT = """你是无人超市数字店员「小王」，你的性格：友好、专业、诚实。
 
 ## 核心原则
@@ -111,7 +113,7 @@ class AnswerComposer:
                     max_tokens=1024,
                     response_format={"type": "json_object"},
                 ),
-                timeout=5.0,
+                timeout=ANSWER_LLM_TIMEOUT_SECONDS,
             )
 
             content = response.choices[0].message.content or "{}"

@@ -150,6 +150,17 @@
 - 启动时会先执行 `<go_bin> version`：
   - 成功：打印实际版本。
   - 失败：直接退出码 `1`。
+- 说明：脚本不会读取 shell 配置文件的“第一条”或“最后一条”PATH 规则，而是让登录 shell 完整初始化后执行
+  `command -v go`。因此最终结果由 shell 初始化后的 PATH 顺序决定；如果配置文件末尾追加了
+  `/opt/homebrew/opt/go@1.24/bin`，只要登录 shell 实际加载到了该配置，就会解析到 Go 1.24。
+- 排查命令：
+
+```bash
+/bin/zsh -lic 'command -v go; go version; print -r -- $PATH'
+```
+
+- Agent/自动化执行约定：不要直接裸跑 `go test ./...` 来代表项目默认验证。优先使用本文件的 harness
+  入口，或使用 `backend/Makefile`，因为这些入口会显式选择 Go 1.24 或打印实际使用的 Go 版本。
 
 ### 4.2 固定流水线规则
 
@@ -185,6 +196,38 @@
 ```bash
 cd backend
 GO_BIN=/opt/homebrew/opt/go@1.24/bin/go python3 scripts/validate.py
+```
+
+如果当前 shell 已经能解析到 Go 1.24，也可以直接运行：
+
+```bash
+cd backend
+python3 scripts/validate.py
+```
+
+该命令会先打印 `Using Go:` 和 `Go binary:`，用于确认实际二进制。
+
+### 5.1.0 只运行 Go 测试
+
+推荐：
+
+```bash
+cd backend
+make test
+```
+
+或：
+
+```bash
+cd backend
+GO_BIN=/opt/homebrew/opt/go@1.24/bin/go make test
+```
+
+不推荐在自动化检查里直接使用裸 `go test ./...`，除非同一条记录里已经确认：
+
+```bash
+command -v go
+go version
 ```
 
 ### 5.1.1 业务链路 live 验证（可选）

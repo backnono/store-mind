@@ -15,7 +15,12 @@ import (
 	"store-mind/infra/retrieval"
 )
 
-const intentRequestTimeout = 8 * time.Second
+const (
+	intentRequestTimeout       = 8 * time.Second
+	answerRequestTimeout       = 8 * time.Second
+	anaphoraRequestTimeout     = 8 * time.Second
+	semanticRankRequestTimeout = 8 * time.Second
+)
 
 // PythonLLMClient 通过 HTTP 调用 Python LLM Sidecar
 // 实现 IntentAnalyzer 和 AnswerComposer 接口
@@ -30,7 +35,7 @@ func NewPythonLLMClient(endpoint string) *PythonLLMClient {
 	return &PythonLLMClient{
 		Endpoint: endpoint,
 		HTTPClient: &http.Client{
-			Timeout: 10 * time.Second, // 单个请求超时，3s 在 context 中控制
+			Timeout: 10 * time.Second, // 单个请求超时，业务接口在 context 中控制
 		},
 	}
 }
@@ -81,7 +86,7 @@ func (c *PythonLLMClient) AnalyzeIntent(ctx context.Context, req app.IntentReque
 
 // ComposeAnswer 调用 Python /llm/answer 生成回答 + 引导建议
 func (c *PythonLLMClient) ComposeAnswer(ctx context.Context, req app.AnswerRequest) (*app.AnswerResult, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, answerRequestTimeout)
 	defer cancel()
 
 	evidenceList := make([]map[string]any, 0, len(req.Evidence))
@@ -136,7 +141,7 @@ func (c *PythonLLMClient) ComposeAnswer(ctx context.Context, req app.AnswerReque
 
 // ResolveAnaphora 调用 Python /llm/resolve 进行指代消解
 func (c *PythonLLMClient) ResolveAnaphora(ctx context.Context, message string, contextStack []domain.ContextStackItem, focusEntities *domain.FocusEntityIDs) (*app.AnaphoraLLMResult, error) {
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, anaphoraRequestTimeout)
 	defer cancel()
 
 	body := map[string]any{
@@ -171,9 +176,9 @@ func (c *PythonLLMClient) ResolveAnaphora(ctx context.Context, message string, c
 
 // SemanticRankFAQ 调用 Python /llm/semantic_search 对 FAQ 候选进行语义重排序。
 // 实现 retrieval.SemanticReranker 接口。
-// 超时 4s，失败时返回错误，由调用方降级回退。
+// 超时 8s，失败时返回错误，由调用方降级回退。
 func (c *PythonLLMClient) SemanticRankFAQ(ctx context.Context, query string, candidates []retrieval.SemanticCandidate) ([]retrieval.SemanticRankResult, error) {
-	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, semanticRankRequestTimeout)
 	defer cancel()
 
 	body := map[string]any{

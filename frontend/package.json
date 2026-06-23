@@ -1,0 +1,39 @@
+{
+  "name": "store-mind-miniapp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Store Mind 顾客端微信小程序 — 小王数字店员",
+  "scripts": {
+    "dev:weapp": "taro build --type weapp --watch",
+    "build:weapp": "taro build --type weapp",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@tarojs/components": "^4.0.8",
+    "@tarojs/plugin-html": "^4.0.8",
+    "@tarojs/plugin-platform-weapp": "^4.0.8",
+    "@tarojs/runtime": "^4.0.8",
+    "@tarojs/taro": "^4.0.8",
+    "pinia": "^2.2.6",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@tarojs/cli": "^4.0.8",
+    "@tarojs/plugin-framework-vue3": "^4.0.8",
+    "@tarojs/webpack5-runner": "^4.2.0",
+    "@types/node": "^22.0.0",
+    "@vitejs/plugin-vue": "^4.6.2",
+    "@vue/test-utils": "^2.4.11",
+    "@vue/tsconfig": "^0.7.0",
+    "babel-preset-taro": "^4.2.0",
+    "jsdom": "^29.1.1",
+    "sass": "^1.80.0",
+    "typescript": "^5.6.0",
+    "vitest": "^1.6.1",
+    "vue-loader": "^17.4.2",
+    "vue-tsc": "^2.1.0",
+    "webpack": "^5.91.0"
+  }
+}

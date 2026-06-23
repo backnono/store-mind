@@ -160,6 +160,32 @@ func TestResolve_L2_LowConfidence_FallsBackTo_L3(t *testing.T) {
 	}
 }
 
+func TestResolve_L2_LowConfidence_ExplicitNewQueryContinuesToOrchestrator(t *testing.T) {
+	lowConfClient := &stubAnaphoraClient{confidence: 0.3, entities: nil}
+	resolver := NewContextResolver(lowConfClient, nopLogger{})
+
+	focus := &domain.FocusEntityIDs{ProductIDs: []int64{101}}
+	req := ResolveRequest{
+		Message:       "薯片在哪里？",
+		SessionState:  StateProductFocus,
+		FocusEntities: focus,
+		ContextStack: []domain.ContextStackItem{
+			{Turn: 1, Intent: "product_location", SystemSummary: "可乐在 B-02"},
+		},
+	}
+
+	result, err := resolver.Resolve(t.Context(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.NeedsClarify {
+		t.Fatalf("expected explicit new product query to continue, got clarify: %+v", result)
+	}
+	if result.Layer != "L2" {
+		t.Fatalf("expected low-confidence L2 passthrough, got %s", result.Layer)
+	}
+}
+
 func TestResolve_L2_HighConfidence(t *testing.T) {
 	// L2 返回 confidence=0.85 → L2 命中
 	highConfClient := &stubAnaphoraClient{confidence: 0.85, entities: []domain.ResolvedEntity{

@@ -5,10 +5,19 @@ import (
 	"time"
 )
 
-func TestIntentRequestTimeoutAllowsPythonUpstreamHeadroom(t *testing.T) {
+func TestLLMRequestTimeoutsAllowPythonUpstreamHeadroom(t *testing.T) {
 	t.Parallel()
 
-	if intentRequestTimeout != 8*time.Second {
-		t.Fatalf("intentRequestTimeout = %s, want 8s", intentRequestTimeout)
+	tests := map[string]time.Duration{
+		"intent":          intentRequestTimeout,
+		"answer":          answerRequestTimeout,
+		"anaphora":        anaphoraRequestTimeout,
+		"semantic_search": semanticRankRequestTimeout,
+	}
+
+	for name, got := range tests {
+		if got != 8*time.Second {
+			t.Fatalf("%s timeout = %s, want 8s", name, got)
+		}
 	}
 }

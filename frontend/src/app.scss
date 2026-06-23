@@ -1,0 +1,31 @@
+// Store Mind 数字店员 — 小王
+// 暗色主基调，模拟"耳边轻语"的私密服务感
+// 品牌暖色 oklch(58% 0.16 70) 作为交互强调色
+
+page {
+  background-color: #1c1b18;
+  color: #ede6dc;
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei',
+    system-ui, sans-serif;
+  font-size: 30px;
+  -webkit-font-smoothing: antialiased;
+}
+
+// 全局 SCSS 变量
+$color-bg: #1c1b18;
+$color-bg-card: #2b2925;
+$color-bg-input: #2e2d29;
+$color-primary: #c9863a;
+$color-primary-dark: #a85e1a;
+$color-text: #ede6dc;
+$color-text-secondary: #9e968a;
+$color-border: #3d3a35;
+$color-success: #5cb85c;
+$color-live: #4caf50;
+$color-error: #d9534f;
+
+// 可信度颜色
+$cred-high: #5cb85c;
+$cred-medium: #f0ad4e;
+$cred-low: #f96b2e;
+$cred-none: #d9534f;

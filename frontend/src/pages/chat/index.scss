@@ -1,0 +1,9 @@
+// ── 聊天页面 ──────────────────────────────────────
+.chat-page {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  height: 100vh;
+  background: #1c1b18;
+  overflow: hidden;
+}

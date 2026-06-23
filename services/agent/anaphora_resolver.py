@@ -9,6 +9,8 @@ from typing import Optional
 
 from openai import AsyncOpenAI
 
+ANAPHORA_LLM_TIMEOUT_SECONDS = 5.0
+
 ANAPHORA_SYSTEM_PROMPT = """你是无人超市数字店员「小王」的指代消解器。
 
 ## 任务
@@ -87,7 +89,7 @@ class AnaphoraResolver:
                     max_tokens=512,
                     response_format={"type": "json_object"},
                 ),
-                timeout=3.0,
+                timeout=ANAPHORA_LLM_TIMEOUT_SECONDS,
             )
 
             content = response.choices[0].message.content or "{}"

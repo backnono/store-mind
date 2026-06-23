@@ -50,11 +50,13 @@
 
 - 默认在 `backend/` 目录执行命令。
 - 标准命令：
-  - 测试：`/opt/homebrew/opt/go@1.24/bin/go test ./...`
+  - 测试：`make test`（默认使用 `/opt/homebrew/opt/go@1.24/bin/go`）
+  - 统一验证：`python3 scripts/validate.py`（会打印实际 Go binary 和 version）
   - 迁移：`make migrate-up`
   - 种子：`make seed`
   - 冒烟：`make smoke`（端口冲突时使用 `DB_PORT=3308 bash scripts/smoke.sh`）
-- 修改脚本后，必须至少验证一次 `go test`。
+- 修改脚本后，必须至少验证一次 `make test` 或 `python3 scripts/validate.py`。
+- 不要用裸 `go test ./...` 代表项目默认验证，除非同一条记录里先确认了 `command -v go` 和 `go version`。
 
 ## 6. 测试与提交流程（强制）
 
@@ -63,7 +65,7 @@
   - 1 个 application 层测试
   - 1 个 api 层测试（`httptest`）
 - 提交前至少执行：
-  1. `go test ./...`
+  1. `make test` 或 `python3 scripts/validate.py`
   2. 若涉及 DB/接口链路，执行 `make smoke` 或等效命令
 
 ## 7. 错误处理与可观测性

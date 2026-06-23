@@ -41,6 +41,15 @@ type defaultContextResolver struct {
 	log       Logger
 }
 
+var contextResolverAnaphoraWords = []string{"那", "这个", "它", "这"}
+
+var contextResolverAttributeQuestionWords = []string{
+	"多少钱", "价格", "还有吗", "还有几", "还有多少",
+	"库存", "在哪里", "哪里", "哪儿", "在哪", "位置", "有货", "没货", "缺货",
+	"几瓶", "几包", "几个", "几件", "几盒",
+	"多少瓶", "多少包", "多少钱",
+}
+
 // AnaphoraClient LLM 指代消解接口，由 infra/ai 中的 Python LLM sidecar 实现。
 type AnaphoraClient interface {
 	ResolveAnaphora(
@@ -79,6 +88,9 @@ func (r *defaultContextResolver) Resolve(ctx context.Context, req ResolveRequest
 			if result.Confidence >= 0.6 {
 				return result, nil
 			}
+			if shouldContinueToOrchestrator(req) {
+				return result, nil
+			}
 		}
 	}
 
@@ -101,26 +113,16 @@ func (r *defaultContextResolver) resolveL1(req ResolveRequest) *ResolveResult {
 		return nil
 	}
 
-	// 检查消息中是否包含新商品名/品牌名（非追问信号）
-	// 追问模式关键词：指代词 + 属性追问词
-	anaphoraWords := []string{"那", "这个", "它", "这"}
-	attributeQuestionWords := []string{
-		"多少钱", "价格", "还有吗", "还有几", "还有多少",
-		"库存", "在哪", "位置", "有货", "没货", "缺货",
-		"几瓶", "几包", "几个", "几件", "几盒",
-		"多少瓶", "多少包", "多少钱",
-	}
-
 	msg := req.Message
-	isAnaphora := containsAny(msg, anaphoraWords)
-	isAttributeQ := containsAny(msg, attributeQuestionWords)
+	isAnaphora := containsAny(msg, contextResolverAnaphoraWords)
+	isAttributeQ := containsAny(msg, contextResolverAttributeQuestionWords)
 
 	// L1 触发条件：
 	// 1. 快速通道：消息是短追问（≤15 字）+ 包含属性追问词 → 直接继承
 	// 2. 指代通道：消息包含指代词 + 不含潜在新实体词
-	if isAttributeQ && len([]rune(msg)) <= 15 {
+	if isAttributeQ && len([]rune(msg)) <= 15 && !hasPotentialEntity(msg, contextResolverAnaphoraWords, contextResolverAttributeQuestionWords) {
 		// 省略追问，直接 L1
-	} else if isAnaphora && !hasPotentialEntity(msg, anaphoraWords, attributeQuestionWords) {
+	} else if isAnaphora && !hasPotentialEntity(msg, contextResolverAnaphoraWords, contextResolverAttributeQuestionWords) {
 		// 显式指代（如"那个多少钱？"），但排除含潜在新实体的（如"那雪碧呢？"）
 	} else {
 		// 可能包含新实体，交给 L2
@@ -176,13 +178,26 @@ func hasPotentialEntity(message string, anaphoraWords, questionWords []string) b
 		cleaned = strings.ReplaceAll(cleaned, w, "")
 	}
 	// 去掉常见标点和语气词
-	extraNoise := []string{"？", "?", "呢", "吗", "吧", "啊", "的", "了", "个"}
+	extraNoise := []string{
+		"？", "?", "呢", "吗", "吧", "啊", "的", "了",
+		"个", "在", "里", "几", "多少", "瓶", "包", "件", "盒",
+	}
 	for _, w := range extraNoise {
 		cleaned = strings.ReplaceAll(cleaned, w, "")
 	}
 	cleaned = strings.TrimSpace(cleaned)
 	// 如果清理后仍有非空白内容 → 可能存在新实体
 	return len([]rune(cleaned)) > 0
+}
+
+func shouldContinueToOrchestrator(req ResolveRequest) bool {
+	if req.SessionState != StateProductFocus {
+		return false
+	}
+	if !containsAny(req.Message, contextResolverAttributeQuestionWords) {
+		return false
+	}
+	return hasPotentialEntity(req.Message, contextResolverAnaphoraWords, contextResolverAttributeQuestionWords)
 }
 
 // resolveL2 调用 LLM 进行指代消解。
