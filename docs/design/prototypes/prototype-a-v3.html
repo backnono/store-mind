@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>方案A原型 v3 — 对标图一布局</title>
+<style>
+  :root {
+    --bg-deep: #111116;
+    --bg-surface: #1a1a20;
+    --bg-elevated: #252530;
+    --bg-card: #2a2a38;
+    --text-primary: #f0f0f5;
+    --text-secondary: #a0a0b0;
+    --text-muted: #666678;
+    --text-user-label: #888;
+    --accent-orange: #e8a645;
+    --accent-orange-light: rgba(232,166,69,0.15);
+    --accent-orange-glow: rgba(232,166,69,0.25);
+    --user-bubble-bg: #3e3e4e;
+    --border-subtle: #2a2a38;
+    --pill-bg: #1e1e2c;
+    --pill-hover: #2a2a3c;
+    --radius-sm: 8px;
+    --radius-md: 14px;
+    --radius-lg: 20px;
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --font-display: 'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;
+  }
+
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    background:#0a0a10;
+    display:flex;justify-content:center;align-items:center;
+    min-height:100vh;
+    font-family:var(--font-display);
+    -webkit-font-smoothing:antialiased;
+    padding:20px;
+  }
+
+  .phone-frame{
+    width:393px;height:852px;
+    background:var(--bg-deep);
+    border-radius:44px;
+    overflow:hidden;position:relative;
+    box-shadow:
+      0 0 0 3px #1a1a24,
+      0 0 0 6px #111118,
+      0 20px 60px rgba(0,0,0,0.7),
+      0 0 120px rgba(232,166,69,0.05);
+    display:flex;flex-direction:column;
+  }
+
+  /* ── Status Bar ── */
+  .status-bar{
+    flex-shrink:0;height:54px;
+    padding:16px 32px 0;
+    display:flex;justify-content:space-between;align-items:center;
+    font-size:14px;font-weight:600;color:var(--text-primary);
+    letter-spacing:-0.2px;
+  }
+  .status-icons{display:flex;gap:6px;align-items:center;}
+  .status-icons span{font-size:13px;}
+
+  /* ── Top Nav ── */
+  .top-nav{
+    flex-shrink:0;height:52px;
+    padding:0 20px;
+    display:flex;align-items:center;gap:12px;
+  }
+  .avatar{
+    width:36px;height:36px;border-radius:50%;
+    background:linear-gradient(135deg,var(--accent-orange),#d4942e);
+    display:flex;align-items:center;justify-content:center;
+    font-size:16px;font-weight:700;color:#fff;flex-shrink:0;
+  }
+  .nav-info{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0;}
+  .nav-name{font-size:16px;font-weight:600;color:var(--text-primary);}
+  .nav-subtitle{
+    font-size:11px;color:var(--accent-orange);
+    display:flex;align-items:center;gap:5px;
+  }
+  .nav-subtitle::before{
+    content:'';width:6px;height:6px;border-radius:50%;
+    background:var(--accent-orange);
+    box-shadow:0 0 8px var(--accent-orange);
+  }
+  .nav-actions{display:flex;gap:4px;align-items:center;}
+  .nav-icon-btn{
+    width:36px;height:36px;border:none;background:transparent;
+    border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-size:20px;color:var(--text-muted);cursor:pointer;transition:all 0.2s;
+  }
+  .nav-icon-btn:hover{background:var(--bg-elevated);color:var(--text-primary);}
+
+  /* ── Chat Title Bar ── */
+  .chat-title-bar{
+    flex-shrink:0;margin:4px 16px 0;
+    padding:10px 14px;
+    background:var(--bg-surface);
+    border:1px solid var(--border-subtle);
+    border-radius:var(--radius-md);
+    display:flex;align-items:center;gap:10px;
+    position:relative;overflow:hidden;
+  }
+  .chat-title-bar::before{
+    content:'';position:absolute;top:0;left:16px;right:16px;height:1px;
+    background:linear-gradient(90deg,transparent,var(--accent-orange),transparent);
+    opacity:0.3;
+  }
+  .chat-title-label{font-size:13px;font-weight:600;color:var(--text-muted);white-space:nowrap;flex-shrink:0;}
+  .chat-title-shop{font-size:13px;font-weight:500;color:var(--text-primary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .title-bar-btns{display:flex;gap:8px;flex-shrink:0;}
+
+  .btn-new-chat{
+    display:flex;align-items:center;gap:5px;
+    padding:7px 14px;
+    background:linear-gradient(135deg,var(--accent-orange),#d4942e);
+    border:none;border-radius:var(--radius-sm);
+    color:#fff;font-size:13px;font-weight:600;
+    cursor:pointer;white-space:nowrap;
+    font-family:var(--font-display);
+    box-shadow:0 2px 12px var(--accent-orange-glow);
+    transition:all 0.2s;
+  }
+  .btn-new-chat:active{transform:scale(0.95);}
+  .btn-new-chat.pulse{animation:pulse-glow 2.5s ease-in-out infinite;}
+  @keyframes pulse-glow{
+    0%,100%{box-shadow:0 2px 12px var(--accent-orange-glow);}
+    50%{box-shadow:0 2px 22px rgba(232,166,69,0.35);}
+  }
+
+  .btn-history{
+    display:flex;align-items:center;gap:5px;
+    padding:7px 14px;
+    background:var(--bg-elevated);border:1px solid var(--border-subtle);
+    border-radius:var(--radius-sm);
+    color:var(--text-muted);font-size:13px;font-weight:500;
+    cursor:pointer;white-space:nowrap;font-family:var(--font-display);
+    transition:all 0.2s;
+  }
+  .btn-history:hover{background:var(--pill-hover);color:var(--text-primary);}
+  .btn-history:active{transform:scale(0.95);}
+
+  /* ═══════════════════════════════════════════
+     MESSAGE AREA — scrollable, flex:1
+     ═══════════════════════════════════════════ */
+  .chat-area{
+    flex:1 1 0;min-height:0;
+    overflow-y:auto;overflow-x:hidden;
+    padding:16px 16px 12px;
+    display:flex;flex-direction:column;gap:16px;
+    -webkit-overflow-scrolling:touch;
+    touch-action:pan-y;
+    overscroll-behavior-y:contain;
+    scrollbar-width:thin;
+    scrollbar-color:#2a2a38 transparent;
+  }
+  .chat-area::-webkit-scrollbar{width:4px;}
+  .chat-area::-webkit-scrollbar-thumb{background:#2a2a38;border-radius:4px;}
+
+  /* ── Scroll hint ── */
+  .scroll-hint{
+    position:absolute;bottom:calc(160px + var(--safe-bottom));left:50%;transform:translateX(-50%);
+    width:36px;height:36px;border-radius:50%;
+    background:var(--bg-elevated);border:1px solid var(--border-subtle);
+    display:flex;align-items:center;justify-content:center;
+    font-size:16px;color:var(--text-muted);cursor:pointer;
+    z-index:5;opacity:0;pointer-events:none;transition:opacity 0.25s;
+    box-shadow:0 4px 16px rgba(0,0,0,0.4);
+  }
+  .scroll-hint.visible{opacity:1;pointer-events:all;}
+  .scroll-hint:hover{color:var(--text-primary);}
+
+  /* ───────────────────────────────────────────
+     USER MESSAGE — 图一风格
+     右侧灰色气泡 + 头像在右侧 + 右上角直角
+     ─────────────────────────────────────────── */
+  .user-msg{
+    display:flex;gap:8px;align-items:flex-end;
+    justify-content:flex-end;
+    animation:slideIn 0.35s ease both;
+  }
+  @keyframes slideIn{
+    from{opacity:0;transform:translateY(10px);}
+    to{opacity:1;transform:translateY(0);}
+  }
+  .user-bubble{
+    max-width:75%;
+    background:var(--user-bubble-bg);
+    border-radius:16px;
+    border-bottom-right-radius:4px; /* 右下尖角指向 */
+    padding:11px 15px;
+    color:#f0f0f5;
+    font-size:14px;line-height:1.5;
+    position:relative;
+  }
+  /* 右上角小三角尖头 */
+  .user-bubble::before{
+    content:'';
+    position:absolute;
+    top:-1px;right:-8px;
+    width:8px;height:8px;
+    background:var(--user-bubble-bg);
+    clip-path:polygon(0 0, 100% 0, 100% 100%);
+    border-radius:0 4px 0 0;
+  }
+  .user-avatar{
+    width:28px;height:28px;border-radius:50%;
+    background:var(--bg-elevated);border:1px solid var(--border-subtle);
+    display:flex;align-items:center;justify-content:center;
+    font-size:12px;font-weight:600;color:var(--text-secondary);
+    flex-shrink:0;
+  }
+
+  /* ───────────────────────────────────────────
+     AI MESSAGE — 图一风格
+     无气泡 + 纯文字贴背景 + 头像紧邻 + 小号名称标注
+     ─────────────────────────────────────────── */
+  .ai-msg{
+    display:flex;gap:10px;align-items:flex-start;
+    animation:slideIn 0.35s ease both;
+  }
+  .ai-avatar{
+    width:30px;height:30px;border-radius:50%;
+    background:linear-gradient(135deg,var(--accent-orange),#d4942e);
+    display:flex;align-items:center;justify-content:center;
+    font-size:14px;font-weight:700;color:#fff;flex-shrink:0;
+    margin-top:2px;
+  }
+  .ai-content{flex:1;min-width:0;max-width:82%;}
+  .ai-name{font-size:11px;font-weight:600;color:var(--text-user-label);margin-bottom:4px;letter-spacing:0.3px;}
+  .ai-text{
+    font-size:14px;line-height:1.65;color:var(--text-secondary);
+    /* NO bubble, text directly on dark background */
+  }
+
+  /* ───────────────────────────────────────────
+     AI INFO CARD — 图一风格
+     深灰圆角卡片 + emoji + 标题 + 副标题 + 位置标签
+     ─────────────────────────────────────────── */
+  .ai-card{
+    margin-top:10px;
+    background:var(--bg-card);
+    border:1px solid #333345;
+    border-radius:var(--radius-md);
+    padding:14px 15px;
+    display:flex;flex-direction:column;gap:10px;
+  }
+  .ai-card-header{
+    display:flex;align-items:center;gap:10px;
+  }
+  .ai-card-emoji{
+    font-size:28px;flex-shrink:0;
+    line-height:1;
+  }
+  .ai-card-info{flex:1;min-width:0;}
+  .ai-card-title{
+    font-size:14px;font-weight:600;color:var(--text-primary);
+    margin-bottom:3px;
+  }
+  .ai-card-sub{
+    font-size:12px;color:var(--text-muted);
+  }
+  .ai-card-tag{
+    display:inline-flex;align-items:center;gap:4px;
+    background:var(--accent-orange-light);
+    border:1px solid rgba(232,166,69,0.3);
+    border-radius:20px;
+    padding:4px 10px;
+    font-size:12px;font-weight:500;
+    color:var(--accent-orange);
+  }
+  .ai-card-tag-icon{font-size:11px;}
+
+  /* ───────────────────────────────────────────
+     QUICK ACTION BUTTONS — 内嵌在AI消息下方
+     ─────────────────────────────────────────── */
+  .ai-quick-actions{
+    display:flex;gap:8px;margin-top:10px;
+  }
+  .qa-btn{
+    display:flex;align-items:center;gap:6px;
+    padding:8px 14px;
+    background:var(--bg-elevated);
+    border:1px solid var(--border-subtle);
+    border-radius:var(--radius-sm);
+    font-size:12px;font-weight:500;
+    color:var(--accent-orange);
+    cursor:pointer;
+    transition:all 0.2s;
+    font-family:var(--font-display);
+    white-space:nowrap;
+  }
+  .qa-btn:hover{
+    background:var(--pill-hover);
+    border-color:rgba(232,166,69,0.4);
+  }
+  .qa-btn:active{transform:scale(0.96);}
+
+  /* ───────────────────────────────────────────
+     FEEDBACK BUTTONS — 👍 👎
+     ─────────────────────────────────────────── */
+  .ai-feedback{
+    display:flex;gap:8px;margin-top:8px;
+  }
+  .feedback-btn{
+    width:34px;height:34px;border-radius:50%;
+    background:var(--bg-elevated);
+    border:1px solid var(--border-subtle);
+    display:flex;align-items:center;justify-content:center;
+    font-size:15px;cursor:pointer;
+    transition:all 0.2s;color:var(--text-muted);
+  }
+  .feedback-btn:hover{background:#333;color:var(--text-primary);}
+  .feedback-btn.active{color:var(--accent-orange);border-color:rgba(232,166,69,0.4);}
+
+  /* ───────────────────────────────────────────
+     AI GREETING BLOCK (welcome state)
+     ─────────────────────────────────────────── */
+  .ai-greeting-block{
+    display:flex;gap:10px;align-items:flex-start;
+    animation:slideIn 0.4s ease both;
+  }
+  .ai-greeting-text{
+    font-size:14px;line-height:1.65;color:var(--text-secondary);
+  }
+
+  /* ───────────────────────────────────────────
+     WELCOME QUICK PILLS (top-level, not inside AI msg)
+     ─────────────────────────────────────────── */
+  .welcome-pills{
+    display:flex;flex-direction:column;gap:8px;
+    animation:slideIn 0.4s 0.1s ease both;
+  }
+  .welcome-pill{
+    display:flex;align-items:center;gap:10px;
+    padding:12px 16px;
+    background:var(--pill-bg);border:1px solid var(--border-subtle);
+    border-radius:var(--radius-md);
+    color:var(--text-muted);font-size:14px;
+    cursor:pointer;transition:all 0.2s;
+    font-family:var(--font-display);
+  }
+  .welcome-pill:hover{
+    background:var(--pill-hover);color:var(--text-secondary);
+    border-color:#3a3a4e;transform:translateX(3px);
+  }
+  .welcome-pill-icon{font-size:17px;flex-shrink:0;}
+
+  /* ── Time divider ── */
+  .time-divider{
+    text-align:center;font-size:11px;color:var(--text-muted);
+    padding:2px 0;
+  }
+
+  /* ── Loading dots ── */
+  .ai-loading{
+    display:flex;gap:5px;align-items:center;
+    padding:4px 0;
+  }
+  .ai-loading span{
+    width:6px;height:6px;border-radius:50%;
+    background:var(--text-muted);
+    animation:dot-bounce 1.4s ease-in-out infinite;
+  }
+  .ai-loading span:nth-child(2){animation-delay:0.16s;}
+  .ai-loading span:nth-child(3){animation-delay:0.32s;}
+  @keyframes dot-bounce{
+    0%,80%,100%{transform:scale(0.5);opacity:0.3;}
+    40%{transform:scale(1);opacity:1;}
+  }
+
+  /* ═══════════════════════════════════════════
+     INPUT AREA — fixed bottom
+     ═══════════════════════════════════════════ */
+  .input-area{
+    flex-shrink:0;
+    padding:10px 16px calc(12px + var(--safe-bottom));
+    border-top:1px solid var(--border-subtle);
+    display:flex;gap:10px;align-items:center;
+    background:var(--bg-deep);
+  }
+  .input-box{
+    flex:1;height:44px;
+    background:var(--bg-surface);
+    border:1px solid var(--border-subtle);
+    border-radius:22px;padding:0 18px;
+    font-size:14px;color:var(--text-primary);
+    font-family:var(--font-display);outline:none;
+    transition:border-color 0.2s,box-shadow 0.2s;
+  }
+  .input-box::placeholder{color:var(--text-muted);}
+  .input-box:focus{
+    border-color:var(--accent-orange);
+    box-shadow:0 0 0 3px rgba(232,166,69,0.08);
+  }
+  .btn-send{
+    width:44px;height:44px;
+    background:linear-gradient(135deg,var(--accent-orange),#d4942e);
+    border:none;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    font-size:18px;color:#fff;cursor:pointer;flex-shrink:0;
+    transition:all 0.2s;
+  }
+  .btn-send:active{transform:scale(0.9);}
+
+  /* ── Tab Bar ── */
+  .tab-bar{
+    flex-shrink:0;height:calc(84px + var(--safe-bottom));
+    padding:8px 12px calc(28px + var(--safe-bottom));
+    display:flex;align-items:flex-start;justify-content:space-around;
+    background:var(--bg-deep);
+    border-top:1px solid var(--border-subtle);
+  }
+  .tab-item{display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;padding:4px 12px;transition:all 0.2s;}
+  .tab-icon{
+    width:26px;height:26px;border-radius:8px;
+    display:flex;align-items:center;justify-content:center;
+    font-size:16px;color:var(--text-muted);transition:all 0.2s;
+  }
+  .tab-item.active .tab-icon{
+    background:linear-gradient(135deg,var(--accent-orange),#d4942e);
+    color:#fff;border-radius:10px;
+    box-shadow:0 2px 10px var(--accent-orange-glow);
+  }
+  .tab-label{font-size:10px;font-weight:500;color:var(--text-muted);}
+  .tab-item.active .tab-label{color:var(--accent-orange);}
+
+  /* ── Drawer ── */
+  .drawer-overlay{
+    position:absolute;inset:0;background:rgba(0,0,0,0.5);
+    z-index:20;opacity:0;pointer-events:none;transition:opacity 0.3s;
+  }
+  .drawer-overlay.open{opacity:1;pointer-events:all;}
+  .drawer{
+    position:absolute;top:0;left:0;bottom:0;width:300px;
+    background:var(--bg-surface);border-right:1px solid var(--border-subtle);
+    z-index:21;transform:translateX(-100%);
+    transition:transform 0.35s cubic-bezier(0.4,0,0.2,1);
+    display:flex;flex-direction:column;
+  }
+  .drawer.open{transform:translateX(0);}
+  .drawer-header{
+    padding:60px 20px 16px;
+    display:flex;align-items:center;justify-content:space-between;
+    border-bottom:1px solid var(--border-subtle);
+  }
+  .drawer-title{font-size:17px;font-weight:700;color:var(--text-primary);}
+  .drawer-close{
+    width:32px;height:32px;border:none;background:var(--bg-elevated);
+    border-radius:50%;font-size:16px;color:var(--text-muted);
+    cursor:pointer;display:flex;align-items:center;justify-content:center;
+    transition:all 0.2s;
+  }
+  .drawer-close:hover{background:#333;color:#fff;}
+  .drawer-list{flex:1;overflow-y:auto;padding:10px 0;}
+  .drawer-item{
+    padding:14px 20px;display:flex;align-items:center;gap:12px;
+    cursor:pointer;transition:background 0.15s;border-left:3px solid transparent;
+  }
+  .drawer-item:hover{background:var(--bg-elevated);}
+  .drawer-item.active{background:rgba(232,166,69,0.08);border-left-color:var(--accent-orange);}
+  .drawer-item-icon{
+    width:34px;height:34px;border-radius:10px;
+    background:var(--bg-elevated);display:flex;align-items:center;justify-content:center;font-size:16px;
+  }
+  .drawer-item-info{display:flex;flex-direction:column;gap:3px;flex:1;min-width:0;}
+  .drawer-item-title{font-size:14px;font-weight:500;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .drawer-item-date{font-size:11px;color:var(--text-muted);}
+
+  /* ── Toast ── */
+  .toast{
+    position:absolute;top:130px;left:50%;
+    transform:translateX(-50%) translateY(-20px);
+    background:var(--bg-elevated);border:1px solid var(--border-subtle);
+    border-radius:var(--radius-md);padding:12px 24px;
+    font-size:14px;font-weight:500;color:var(--text-primary);
+    z-index:40;opacity:0;pointer-events:none;
+    transition:all 0.3s cubic-bezier(0.4,0,0.2,1);
+    box-shadow:0 8px 30px rgba(0,0,0,0.5);
+    white-space:nowrap;
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+  /* ── Ripple ── */
+  .ripple-feedback{
+    position:absolute;top:50%;left:50%;
+    transform:translate(-50%,-50%) scale(0);
+    width:200px;height:200px;border-radius:50%;
+    background:rgba(232,166,69,0.1);pointer-events:none;z-index:30;
+  }
+  .ripple-feedback.fire{animation:ripple 0.7s ease-out forwards;}
+  @keyframes ripple{
+    0%{transform:translate(-50%,-50%) scale(0);opacity:0.6;}
+    100%{transform:translate(-50%,-50%) scale(3);opacity:0;}
+  }
+
+  @media(max-width:420px){
+    html,body{height:100%;overflow:hidden;}
+    body{padding:0;align-items:stretch;}
+    .phone-frame{width:100vw;height:100vh;height:100dvh;border-radius:0;}
+  }
+</style>
+</head>
+<body>
+
+<div class="phone-frame" id="phone">
+
+  <!-- Status Bar -->
+  <div class="status-bar">
+    <span>23:30</span>
+    <div class="status-icons"><span>●●●●○</span><span>WiFi</span><span>🔋</span></div>
+  </div>
+
+  <!-- Top Nav -->
+  <div class="top-nav">
+    <div class="avatar">王</div>
+    <div class="nav-info">
+      <span class="nav-name">小王 · 数字店员</span>
+      <span class="nav-subtitle">阳光便利店 No.3</span>
+    </div>
+    <div class="nav-actions">
+      <button class="nav-icon-btn">⋯</button>
+      <button class="nav-icon-btn">◎</button>
+    </div>
+  </div>
+
+  <!-- Chat Title Bar -->
+  <div class="chat-title-bar">
+    <span class="chat-title-label">💬 对话</span>
+    <span class="chat-title-shop">阳光便利店 No.3</span>
+    <div class="title-bar-btns">
+      <button class="btn-new-chat pulse" onclick="newChat()">
+        <span>+</span> 新聊天
+      </button>
+      <button class="btn-history" onclick="openDrawer()">
+        <span>🕐</span> 历史
+      </button>
+    </div>
+  </div>
+
+  <!-- Message Area -->
+  <div class="chat-area" id="chatArea"></div>
+
+  <!-- Scroll hint -->
+  <div class="scroll-hint" id="scrollHint" onclick="scrollToBottom()">↓</div>
+
+  <!-- Input Area -->
+  <div class="input-area">
+    <input type="text" class="input-box" id="inputBox" placeholder="向小王提问..." onkeydown="handleInputKey(event)">
+    <button class="btn-send" onclick="sendMessage()">↑</button>
+  </div>
+
+  <!-- Tab Bar -->
+  <div class="tab-bar">
+    <div class="tab-item"><div class="tab-icon">🏠</div><span class="tab-label">首页</span></div>
+    <div class="tab-item"><div class="tab-icon">🛒</div><span class="tab-label">购物</span></div>
+    <div class="tab-item active"><div class="tab-icon">王</div><span class="tab-label">小王</span></div>
+    <div class="tab-item"><div class="tab-icon">📋</div><span class="tab-label">订单</span></div>
+    <div class="tab-item"><div class="tab-icon">👤</div><span class="tab-label">我的</span></div>
+  </div>
+
+  <!-- Drawer -->
+  <div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
+  <div class="drawer" id="drawer">
+    <div class="drawer-header">
+      <span class="drawer-title">历史对话</span>
+      <button class="drawer-close" onclick="closeDrawer()">✕</button>
+    </div>
+    <div class="drawer-list" id="drawerList"></div>
+  </div>
+
+  <!-- Ripple & Toast -->
+  <div class="ripple-feedback" id="ripple"></div>
+  <div class="toast" id="toast" id="toastText"></div>
+
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════
+   STATE
+   ═══════════════════════════════════════════════ */
+let messages = [];  // {type, ...}
+
+/* ═══════════════════════════════════════════════
+   INIT
+   ═══════════════════════════════════════════════ */
+function init() {
+  messages = [
+    {
+      type: 'ai-greeting',
+      texts: [
+        '你好，我是小王 👋',
+        '乐事原味薯片在零食区 A-03 货架第 2 层，找不到的话随时问我～'
+      ],
+      card: {
+        emoji: '🍿',
+        title: '乐事原味薯片 104g',
+        sub: '零食区 A-03 · 第2层',
+        tag: '📍 位置'
+      },
+      quickActions: [
+        { icon: '📦', text: '还有几包？' },
+        { icon: '🏷️', text: '有活动吗？' }
+      ]
+    },
+    {
+      type: 'welcome-pills',
+      items: [
+        { icon: '📍', text: '薯片在哪里？' },
+        { icon: '🏷️', text: '今天有什么活动？' },
+        { icon: '🥤', text: '低糖饮料有哪些？' },
+        { icon: '💳', text: '怎么付款？' }
+      ]
+    }
+  ];
+  buildHistoryList();
+  renderChat();
+}
+
+/* ═══════════════════════════════════════════════
+   RENDER
+   ═══════════════════════════════════════════════ */
+function renderChat() {
+  const area = document.getElementById('chatArea');
+  const wasAtBottom = isAtBottom();
+
+  let html = '';
+
+  messages.forEach((msg, idx) => {
+    if (msg.type === 'ai-greeting') {
+      // AI: avatar + name + texts
+      html += `<div class="ai-msg" style="animation-delay:${idx * 0.05}s">
+        <div class="ai-avatar">王</div>
+        <div class="ai-content">
+          <div class="ai-name">王</div>`;
+
+      msg.texts.forEach((text, ti) => {
+        html += `<div class="ai-text"${ti > 0 ? ' style="margin-top:8px"' : ''}>${text}</div>`;
+      });
+
+      // Info card
+      if (msg.card) {
+        html += `
+          <div class="ai-card">
+            <div class="ai-card-header">
+              <span class="ai-card-emoji">${msg.card.emoji}</span>
+              <div class="ai-card-info">
+                <div class="ai-card-title">${msg.card.title}</div>
+                <div class="ai-card-sub">${msg.card.sub}</div>
+              </div>
+            </div>
+            <span class="ai-card-tag">
+              <span class="ai-card-tag-icon">${msg.card.tag.split(' ')[0]}</span>
+              ${msg.card.tag.split(' ').slice(1).join(' ')}
+            </span>
+          </div>`;
+      }
+
+      // Quick action buttons
+      if (msg.quickActions) {
+        html += `<div class="ai-quick-actions">`;
+        msg.quickActions.forEach(btn => {
+          html += `<button class="qa-btn" onclick="handleQABtn('${btn.text}')">
+            <span>${btn.icon}</span>${btn.text}
+          </button>`;
+        });
+        html += `</div>`;
+      }
+
+      // Feedback buttons
+      html += `
+        <div class="ai-feedback">
+          <button class="feedback-btn" onclick="this.classList.toggle('active')" title="有帮助">👍</button>
+          <button class="feedback-btn" onclick="this.classList.toggle('active')" title="没帮助">👎</button>
+        </div>`;
+
+      html += `</div></div>`;
+
+    } else if (msg.type === 'welcome-pills') {
+      html += `<div class="welcome-pills" style="animation-delay:${idx * 0.05}s">`;
+      msg.items.forEach(item => {
+        html += `
+          <div class="welcome-pill" onclick="handlePill('${item.text}')">
+            <span class="welcome-pill-icon">${item.icon}</span>
+            ${item.text}
+          </div>`;
+      });
+      html += `</div>`;
+
+    } else if (msg.type === 'user') {
+      html += `
+        <div class="user-msg" style="animation-delay:${idx * 0.05}s">
+          <div class="user-bubble">${msg.text}</div>
+          <div class="user-avatar">我</div>
+        </div>`;
+
+    } else if (msg.type === 'ai-reply') {
+      html += `<div class="ai-msg" style="animation-delay:${idx * 0.05}s">
+        <div class="ai-avatar">王</div>
+        <div class="ai-content">
+          <div class="ai-name">王</div>
+          <div class="ai-text">${msg.text}</div>`;
+
+      if (msg.card) {
+        html += `
+          <div class="ai-card">
+            <div class="ai-card-header">
+              <span class="ai-card-emoji">${msg.card.emoji}</span>
+              <div class="ai-card-info">
+                <div class="ai-card-title">${msg.card.title}</div>
+                <div class="ai-card-sub">${msg.card.sub}</div>
+              </div>
+            </div>
+            <span class="ai-card-tag">
+              <span class="ai-card-tag-icon">${msg.card.tag.split(' ')[0]}</span>
+              ${msg.card.tag.split(' ').slice(1).join(' ')}
+            </span>
+          </div>`;
+      }
+
+      if (msg.quickActions) {
+        html += `<div class="ai-quick-actions">`;
+        msg.quickActions.forEach(btn => {
+          html += `<button class="qa-btn" onclick="handleQABtn('${btn.text}')">
+            <span>${btn.icon}</span>${btn.text}
+          </button>`;
+        });
+        html += `</div>`;
+      }
+
+      html += `
+        <div class="ai-feedback">
+          <button class="feedback-btn" onclick="this.classList.toggle('active')">👍</button>
+          <button class="feedback-btn" onclick="this.classList.toggle('active')">👎</button>
+        </div>
+        </div></div>`;
+
+    } else if (msg.type === 'ai-loading') {
+      html += `
+        <div class="ai-msg">
+          <div class="ai-avatar">王</div>
+          <div class="ai-content">
+            <div class="ai-name">王</div>
+            <div class="ai-loading">
+              <span></span><span></span><span></span>
+            </div>
+          </div>
+        </div>`;
+    }
+  });
+
+  area.innerHTML = html;
+
+  if (wasAtBottom || messages.length <= 4) {
+    scrollToBottom(false);
+  }
+  updateScrollHint();
+}
+
+/* ═══════════════════════════════════════════════
+   SCROLL
+   ═══════════════════════════════════════════════ */
+function isAtBottom() {
+  const area = document.getElementById('chatArea');
+  return area.scrollHeight - area.scrollTop - area.clientHeight < 60;
+}
+function scrollToBottom(smooth = true) {
+  const area = document.getElementById('chatArea');
+  area.scrollTo({ top: area.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+}
+function updateScrollHint() {
+  const h = document.getElementById('scrollHint');
+  if (!isAtBottom()) h.classList.add('visible');
+  else h.classList.remove('visible');
+}
+document.getElementById('chatArea').addEventListener('scroll', updateScrollHint);
+
+/* ═══════════════════════════════════════════════
+   SEND
+   ═══════════════════════════════════════════════ */
+function sendMessage() {
+  const input = document.getElementById('inputBox');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+
+  messages.push({ type: 'user', text });
+  renderChat();
+  scrollToBottom();
+
+  // Loading
+  messages.push({ type: 'ai-loading' });
+  renderChat();
+  scrollToBottom();
+
+  setTimeout(() => {
+    messages = messages.filter(m => m.type !== 'ai-loading');
+    const replies = [
+      {
+        text: '在零食区 A-03 货架第 2 层，橙黄色包装的就是～',
+        card: { emoji: '🍿', title: '乐事原味薯片 104g', sub: '零食区 A-03 · 第2层', tag: '📍 位置' },
+        quickActions: [{ icon: '📦', text: '还有几包？' }, { icon: '🏷️', text: '有活动吗？' }]
+      },
+      {
+        text: '今天全场饮料 8 折，还有满 30 减 5 的优惠，会员双倍积分～',
+        card: { emoji: '🏷️', title: '今日活动汇总', sub: '截止今晚 23:59', tag: '⏰ 今日' },
+        quickActions: [{ icon: '💳', text: '怎么成为会员？' }, { icon: '🎁', text: '积分能换什么？' }]
+      },
+      {
+        text: '低糖的选择有元气森林、三得利无糖乌龙茶、怡泉苏打水，都在冷藏柜第二层～',
+        card: { emoji: '🥤', title: '低糖饮料推荐', sub: '冷藏柜第二层', tag: '📍 位置' },
+        quickActions: [{ icon: '💰', text: '哪个最便宜？' }, { icon: '☕', text: '有咖啡吗？' }]
+      },
+      {
+        text: '支持微信支付、支付宝、云闪付，用会员码还能用积分抵扣，最高可抵 30%。',
+        card: { emoji: '💳', title: '支付方式', sub: '微信 · 支付宝 · 云闪付', tag: '✓ 支持' },
+        quickActions: [{ icon: '🎫', text: '积分怎么用？' }, { icon: '📱', text: '会员码在哪？' }]
+      }
+    ];
+    const reply = replies[Math.floor(Math.random() * replies.length)];
+    messages.push({ type: 'ai-reply', ...reply });
+    renderChat();
+    scrollToBottom();
+  }, 1200);
+}
+
+function handleInputKey(e) {
+  if (e.key === 'Enter') { e.preventDefault(); sendMessage(); }
+}
+
+function handlePill(text) {
+  document.getElementById('inputBox').value = text;
+  sendMessage();
+}
+
+function handleQABtn(text) {
+  document.getElementById('inputBox').value = text;
+  sendMessage();
+}
+
+/* ═══════════════════════════════════════════════
+   NEW CHAT
+   ═══════════════════════════════════════════════ */
+function newChat() {
+  const btn = document.querySelector('.btn-new-chat');
+  const ripple = document.getElementById('ripple');
+  const toast = document.getElementById('toast');
+
+  btn.style.transform = 'scale(0.9)';
+  setTimeout(() => { btn.style.transform = ''; }, 150);
+
+  ripple.classList.remove('fire');
+  void ripple.offsetWidth;
+  ripple.classList.add('fire');
+
+  toast.classList.add('show');
+  setTimeout(() => { toast.classList.remove('show'); }, 1800);
+
+  messages = [
+    {
+      type: 'ai-greeting',
+      texts: ['新对话已开启 ✨', '有什么想了解的？直接问我吧～'],
+      card: null,
+      quickActions: null
+    },
+    {
+      type: 'welcome-pills',
+      items: [
+        { icon: '📍', text: '薯片在哪里？' },
+        { icon: '🏷️', text: '今天有什么活动？' },
+        { icon: '🥤', text: '低糖饮料有哪些？' },
+        { icon: '💳', text: '怎么付款？' }
+      ]
+    }
+  ];
+  renderChat();
+  scrollToBottom(false);
+  document.getElementById('inputBox').focus();
+}
+
+/* ═══════════════════════════════════════════════
+   DRAWER
+   ═══════════════════════════════════════════════ */
+function buildHistoryList() {
+  const list = document.getElementById('drawerList');
+  const items = [
+    { icon: '💬', title: '薯片在哪里？', date: '今天 23:30', active: true },
+    { icon: '🥤', title: '低糖饮料推荐', date: '今天 18:42', active: false },
+    { icon: '🎫', title: '会员积分查询', date: '昨天 14:15', active: false },
+    { icon: '📦', title: '快递代收咨询', date: '6月20日', active: false },
+    { icon: '🏪', title: '阳光便利店 No.2', date: '6月18日', active: false },
+  ];
+  list.innerHTML = items.map((item, i) => `
+    <div class="drawer-item${item.active ? ' active' : ''}" onclick="switchHistory(${i})">
+      <div class="drawer-item-icon">${item.icon}</div>
+      <div class="drawer-item-info">
+        <span class="drawer-item-title">${item.title}</span>
+        <span class="drawer-item-date">${item.date}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function openDrawer() {
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('drawerOverlay').classList.add('open');
+}
+function closeDrawer() {
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('drawerOverlay').classList.remove('open');
+}
+function switchHistory(idx) {
+  document.querySelectorAll('.drawer-item').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.drawer-item')[idx].classList.add('active');
+  setTimeout(() => { closeDrawer(); newChat(); }, 250);
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+
+/* ═══════════════════════════════════════════════
+   BOOT
+   ═══════════════════════════════════════════════ */
+init();
+</script>
+
+</body>
+</html>

@@ -205,25 +205,6 @@ func TestServiceChatFallbackBehaviorCoverage(t *testing.T) {
 	}
 }
 
-func TestServiceChatPersistsDecisionLogWhenSupported(t *testing.T) {
-	repo := &fakeRepoWithDecisionLog{}
-	svc := NewService(repo, fakeLogger{})
-
-	resp, err := svc.Chat(context.Background(), ChatRequest{RequestID: "r-log", StoreID: 1, Channel: "miniapp", Message: "怎么付款"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Intent != "faq" {
-		t.Fatalf("expected faq intent, got %+v", resp)
-	}
-	if len(repo.decisionLogs) != 1 {
-		t.Fatalf("expected one decision log, got %+v", repo.decisionLogs)
-	}
-	if repo.decisionLogs[0].Intent != "faq" || repo.decisionLogs[0].Route != RouteFallback {
-		t.Fatalf("unexpected decision log: %+v", repo.decisionLogs[0])
-	}
-}
-
 func TestServiceChatReuseSession(t *testing.T) {
 	repo := &fakeRepo{
 		sid:      9,
@@ -463,15 +444,4 @@ type fakeRepoWithFAQFailure struct {
 
 func (f *fakeRepoWithFAQFailure) SearchFAQ(_ context.Context, storeID int64, query string, limit int) ([]domain.FAQ, error) {
 	return nil, errors.New("db timeout")
-}
-
-type fakeRepoWithDecisionLog struct {
-	fakeRepo
-	decisionLogs []domain.ChatDecisionLog
-}
-
-func (f *fakeRepoWithDecisionLog) CreateDecisionLog(_ context.Context, log *domain.ChatDecisionLog) (*domain.ChatDecisionLog, error) {
-	log.ID = int64(len(f.decisionLogs) + 1)
-	f.decisionLogs = append(f.decisionLogs, *log)
-	return log, nil
 }

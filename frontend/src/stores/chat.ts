@@ -1,5 +1,6 @@
 // ============================================================
 // Chat Store — 管理对话消息、发送状态、反馈
+// 持久化 key 支持 session 作用域
 // ============================================================
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
@@ -133,7 +134,16 @@ export const useChatStore = defineStore('chat', () => {
         response.handoff_required,
       )
 
-      // 持久化消息快照
+      // 记录到本地历史
+      if (response.session_id) {
+        await sessionStore.recordSession({
+          sessionId: response.session_id,
+          title: text,
+          lastMessagePreview: response.answer.slice(0, 40),
+        })
+      }
+
+      // 持久化消息快照（按 session 作用域）
       persistMessages()
     } catch (err) {
       const apiErr = normalizeError(err)
@@ -151,14 +161,11 @@ export const useChatStore = defineStore('chat', () => {
   // ── Feedback ────────────────────────────────────────
 
   async function submitFeedback(messageId: number, value: 0 | 1): Promise<void> {
-    // 只能对助理消息反馈
     const msg = messages.value.find((m) => m.messageId === messageId)
     if (!msg || msg.role !== 'assistant') return
 
-    // 不允许重复提交
     if (feedbackByMessageId.value[messageId] !== undefined) return
 
-    // 乐观更新
     feedbackByMessageId.value = { ...feedbackByMessageId.value, [messageId]: value }
 
     try {
@@ -168,7 +175,6 @@ export const useChatStore = defineStore('chat', () => {
         feedback_value: value,
       })
     } catch {
-      // 回滚
       const fb = { ...feedbackByMessageId.value }
       delete fb[messageId]
       feedbackByMessageId.value = fb
@@ -179,13 +185,19 @@ export const useChatStore = defineStore('chat', () => {
     return feedbackByMessageId.value[messageId]
   }
 
-  // ── Persistence ─────────────────────────────────────
+  // ── Persistence (session-scoped) ────────────────────
+
+  /** 当前会话的 session_id（持久化 key 用） */
+  function _currentSessionId(): number {
+    return sessionStore.currentSessionId
+  }
 
   async function persistMessages(): Promise<void> {
     if (sessionStore.storeId <= 0) return
+    const key = messagesKey(sessionStore.storeId, _currentSessionId())
     const snapshot = latestMessages.value
     try {
-      await setItem(messagesKey(sessionStore.storeId), snapshot)
+      await setItem(key, snapshot)
     } catch {
       // non-critical
     }
@@ -193,10 +205,10 @@ export const useChatStore = defineStore('chat', () => {
 
   async function restoreMessages(storeId: number): Promise<Message[]> {
     try {
-      const saved = await getItem<Message[]>(messagesKey(storeId))
+      const key = messagesKey(storeId, _currentSessionId())
+      const saved = await getItem<Message[]>(key)
       if (saved && saved.length > 0) {
         messages.value = saved
-        // 重置 nextId 避免冲突
         const maxExisting = Math.max(
           ...saved.map((m) => {
             const parts = m.id.split('_')
@@ -214,12 +226,13 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function persistDraft(storeId: number): Promise<void> {
+    const key = draftKey(storeId, _currentSessionId())
     if (!draftText.value) {
-      await removeItem(draftKey(storeId))
+      await removeItem(key)
       return
     }
     try {
-      await setItem(draftKey(storeId), draftText.value)
+      await setItem(key, draftText.value)
     } catch {
       // non-critical
     }
@@ -227,7 +240,8 @@ export const useChatStore = defineStore('chat', () => {
 
   async function restoreDraft(storeId: number): Promise<string> {
     try {
-      const saved = await getItem<string>(draftKey(storeId))
+      const key = draftKey(storeId, _currentSessionId())
+      const saved = await getItem<string>(key)
       if (saved) {
         draftText.value = saved
         return saved

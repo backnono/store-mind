@@ -3,7 +3,7 @@
 // ============================================================
 import Taro from '@tarojs/taro'
 
-export { sessionKey, messagesKey, draftKey } from './storageKeys'
+export { sessionKey, messagesKey, draftKey, sessionHistoryKey } from './storageKeys'
 
 /**
  * 存 JSON

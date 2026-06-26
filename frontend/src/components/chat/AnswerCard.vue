@@ -1,30 +1,27 @@
 <template>
   <view class="answer-card" :class="`card-${card.type}`">
-    <!-- Product -->
+    <!-- Product — 图一风格: emoji + 标题 + 副标题 + 位置标签 -->
     <template v-if="card.type === 'product'">
       <view class="card-header">
-        <view class="product-icon">{{ productEmoji }}</view>
-        <view class="product-main">
-          <view class="product-name">{{ card.name ?? '商品' }}</view>
-          <view v-if="card.location" class="product-spec">{{ card.location }}</view>
+        <view class="card-emoji">{{ productEmoji }}</view>
+        <view class="card-main">
+          <view class="card-title">{{ card.name ?? '商品' }}</view>
+          <view v-if="card.location" class="card-sub">{{ card.location }}</view>
         </view>
-        <view v-if="card.price" class="product-price">{{ card.price }}</view>
       </view>
-      <view v-if="hasMeta" class="card-body">
-        <view class="meta-row">
-          <text v-if="card.location" class="tag location">📍 {{ card.location }}</text>
-          <text v-if="card.quantity !== undefined" class="tag stock">📦 库存 {{ card.quantity }}</text>
-        </view>
+      <view v-if="hasMeta" class="card-tags">
+        <text v-if="card.location" class="tag location">📍 {{ card.location }}</text>
+        <text v-if="card.price" class="tag price">¥{{ card.price }}</text>
       </view>
     </template>
 
     <!-- Inventory -->
     <template v-if="card.type === 'inventory'">
       <view class="card-header">
-        <view class="product-icon">📦</view>
-        <view class="product-main">
-          <view class="product-name">{{ card.name ?? '商品' }}</view>
-          <view v-if="card.location" class="product-spec">{{ card.location }}</view>
+        <view class="card-emoji">📦</view>
+        <view class="card-main">
+          <view class="card-title">{{ card.name ?? '商品' }}</view>
+          <view v-if="card.location" class="card-sub">{{ card.location }}</view>
         </view>
         <view class="stock-badge" :class="stockLevel">{{ stockLabel }}</view>
       </view>
@@ -63,12 +60,13 @@ const productEmoji = computed(() => {
   if (name.includes('可乐') || name.includes('cola')) return '🥤'
   if (name.includes('雪碧') || name.includes('sprite')) return '🫧'
   if (name.includes('元气') || name.includes('汽水')) return '🍑'
-  if (name.includes('薯片') || name.includes('零食')) return '🍿'
+  if (name.includes('薯片') || name.includes('零食') || name.includes('乐事')) return '🍿'
   if (name.includes('巧克力') || name.includes('布朗尼')) return '🍫'
+  if (name.includes('蛋糕') || name.includes('面包')) return '🍰'
   return '🛒'
 })
 
-const hasMeta = computed(() => !!props.card.location || props.card.quantity !== undefined)
+const hasMeta = computed(() => !!props.card.location || props.card.price !== undefined)
 
 const stockLevel = computed(() => {
   const q = props.card.quantity
@@ -91,10 +89,10 @@ const stockLabel = computed(() => {
 
 <style lang="scss">
 .answer-card {
-  background: #342f28;
+  background: #2a2a36;
   border-radius: 22px;
   overflow: hidden;
-  border: 1px solid #3d3a35;
+  border: 1px solid #333345;
 }
 
 .card-header {
@@ -104,69 +102,67 @@ const stockLabel = computed(() => {
   padding: 18px 20px;
 }
 
-.product-icon {
-  width: 68px;
-  height: 68px;
+.card-emoji {
+  width: 64px;
+  height: 64px;
   border-radius: 14px;
-  background: #3a352e;
+  background: #34323a;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 36px;
+  font-size: 34px;
   flex-shrink: 0;
+  line-height: 1;
 }
 
-.product-main {
+.card-main {
   flex: 1;
   min-width: 0;
 }
 
-.product-name {
-  font-size: 26px;
+.card-title {
+  font-size: 28px;
   font-weight: 600;
-  color: #ede6dc;
+  color: #f0f0f5;
   line-height: 1.3;
 }
 
-.product-spec {
-  font-size: 20px;
-  color: #9e968a;
-  margin-top: 2px;
+.card-sub {
+  font-size: 22px;
+  color: #888;
+  margin-top: 4px;
 }
 
-.product-price {
-  font-size: 30px;
-  font-weight: 700;
-  color: #deb370;
-  white-space: nowrap;
-  flex-shrink: 0;
+.card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 0 20px 18px;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 20px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-weight: 500;
+
+  &.location {
+    background: rgba(232, 166, 69, 0.14);
+    border: 1px solid rgba(232, 166, 69, 0.25);
+    color: #e8a645;
+  }
+
+  &.price {
+    background: rgba(92, 184, 92, 0.12);
+    color: #6bc46b;
+  }
 }
 
 .card-body {
   padding: 0 20px 18px;
-}
-
-.meta-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.tag {
-  font-size: 20px;
-  padding: 5px 14px;
-  border-radius: 18px;
-  font-weight: 500;
-
-  &.location {
-    background: rgba(201, 134, 58, 0.14);
-    color: #d4a44c;
-  }
-
-  &.stock {
-    background: rgba(92, 184, 92, 0.12);
-    color: #6bc46b;
-  }
 }
 
 // Inventory badges

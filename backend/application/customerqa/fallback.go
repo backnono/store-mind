@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
 	domain "store-mind/domain/customerqa"
 )
+
+// reEmoji 用于清理消息中的 emoji 字符。
+var reEmoji = regexp.MustCompile(`[\x{1F600}-\x{1F64F}\x{1F300}-\x{1F5FF}\x{1F680}-\x{1F6FF}\x{1F1E0}-\x{1F1FF}\x{2600}-\x{26FF}\x{2700}-\x{27BF}\x{FE00}-\x{FE0F}\x{200D}\x{20E3}\x{FE0F}\x{23CF}\x{23E9}-\x{23F3}\x{23F8}-\x{23FA}\x{2934}\x{2935}\x{25AA}\x{25AB}\x{25B6}\x{25C0}\x{25FB}-\x{25FE}\x{2B05}\x{2B06}\x{2B07}\x{2B1B}\x{2B1C}\x{2B50}\x{2B55}\x{3030}\x{303D}\x{3297}\x{3299}\x{E000}-\x{F8FF}]+`)
 
 // —— 降级编排器 ——
 
@@ -39,7 +43,7 @@ func routeIntent(message string) string {
 		return "promotion"
 	case strings.Contains(message, "付款") || strings.Contains(message, "支付") || strings.Contains(message, "退款") || strings.Contains(message, "营业"):
 		return "faq"
-	case strings.Contains(message, "还有吗") || strings.Contains(message, "库存") || strings.Contains(message, "还有没有"):
+	case strings.Contains(message, "还有") || strings.Contains(message, "库存"):
 		return "inventory"
 	case strings.Contains(message, "在哪") || strings.Contains(message, "哪里") || strings.Contains(message, "位置"):
 		return "product_location"
@@ -78,6 +82,8 @@ func (o *fallbackOrchestrator) answerChat(ctx context.Context, sessionID, messag
 		return o.answerProductLocation(ctx, sessionID, messageID, storeID, message)
 	case "inventory":
 		return o.answerInventory(ctx, sessionID, messageID, storeID, message)
+	case "price":
+		return o.answerPrice(ctx, sessionID, messageID, storeID, message)
 	case "promotion":
 		return o.answerPromotion(ctx, sessionID, messageID, storeID)
 	case "faq":
@@ -193,6 +199,44 @@ func (o *fallbackOrchestrator) answerFAQ(ctx context.Context, sessionID, message
 	return items[0].Answer, []ChatCard{card}, false, nil
 }
 
+// answerPrice 处理价格查询（fallback 兜底）。
+//
+//	搜索商品 → 查位置 → 查库存（含价格）→ 拼装回答。
+func (o *fallbackOrchestrator) answerPrice(ctx context.Context, sessionID, messageID, storeID int64, message string) (string, []ChatCard, bool, error) {
+	query := extractProductQuery(message)
+	products, err := o.searchProductsTool(ctx, sessionID, messageID, storeID, query)
+	if err != nil {
+		return "暂时无法查询价格信息，你可以稍后再试或联系人工客服。", nil, false, err
+	}
+	if len(products) == 0 {
+		return fmt.Sprintf("我没有找到「%s」的在售信息。你可以换个叫法再问我，或联系人工客服确认。", query), nil, false, nil
+	}
+
+	location, err := o.getProductLocationTool(ctx, sessionID, messageID, storeID, products[0].ID)
+	if err != nil {
+		return "暂时无法查询价格信息，你可以稍后再试或联系人工客服。", nil, false, err
+	}
+	if location.SKUID == nil {
+		return fmt.Sprintf("%s 在 %s %s 货架，但暂未查到该规格的价格。", products[0].Name, location.ZoneName, location.ShelfCode), nil, false, nil
+	}
+
+	inventory, err := o.getInventoryTool(ctx, sessionID, messageID, storeID, *location.SKUID)
+	if err != nil {
+		return "暂时无法查询价格信息，你可以稍后再试或联系人工客服。", nil, false, err
+	}
+	priceStr := fmt.Sprintf("¥%.2f", inventory.Price)
+	if inventory.Spec != "" {
+		priceStr += " / " + inventory.Spec
+	}
+	card := ChatCard{
+		Type:     "price",
+		Name:     inventory.ProductName,
+		Location: fmt.Sprintf("%s %s 货架", location.ZoneName, location.ShelfCode),
+		SKUID:    inventory.SKUID,
+	}
+	return fmt.Sprintf("%s · %s · 在 %s %s 货架。", inventory.ProductName, priceStr, location.ZoneName, location.ShelfCode), []ChatCard{card}, false, nil
+}
+
 // —— 工具调用包装方法 ——
 // 每个 tool 方法负责：调用 repo → 计时 → 记录 tool_call 日志。
 // 这些方法同时被 fallback 编排器和主编排器（collectToolEvidence）内部的路径使用。
@@ -271,7 +315,9 @@ func (o *fallbackOrchestrator) recordToolCall(ctx context.Context, sessionID, me
 // 例如："请问牛奶在哪里？" → "牛奶"
 // 注意：当前使用简单的字符串替换，未来可由 LLM NER 替代以获得更精确的实体抽取。
 func extractProductQuery(message string) string {
-	query := strings.TrimSpace(message)
+	// 0: 干掉 emoji
+	query := reEmoji.ReplaceAllString(message, "")
+	query = strings.TrimSpace(query)
 	replacements := []string{
 		"请问", "",
 		"我想找", "",
@@ -279,10 +325,20 @@ func extractProductQuery(message string) string {
 		"在哪里", "",
 		"在哪", "",
 		"位置", "",
+		"多少钱", "",
+		"价格", "",
+		"还有多少", "",
+		"还有几瓶", "",
+		"还有几包", "",
+		"还有几个", "",
 		"还有没有", "",
 		"还有吗", "",
+		"还有", "",
 		"库存", "",
 		"有吗", "",
+		"多少钱", "",
+		"有哪些", "",
+		"有什么", "",
 		"呢", "",
 		"？", "",
 		"?", "",

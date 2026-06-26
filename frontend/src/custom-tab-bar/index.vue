@@ -25,8 +25,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { nextTick, onMounted, ref } from 'vue'
 import Taro, { useDidShow } from '@tarojs/taro'
+import {
+  CUSTOM_TABBAR_HEIGHT_EVENT,
+  CUSTOM_TABBAR_HEIGHT_STORAGE_KEY,
+} from '@/utils/layoutEvents'
+
+type SelectorRect = {
+  height?: number
+}
 
 const tabs = [
   { key: 'home', label: '首页', icon: '🏪', index: 0 },
@@ -54,6 +62,24 @@ const routeToTab: Record<string, number> = {
 
 const selected = ref(0)
 
+function normalizeRectHeight(rect: SelectorRect | SelectorRect[] | null): number {
+  const box = Array.isArray(rect) ? rect[0] : rect
+  return box?.height && box.height > 0 ? Math.ceil(box.height) : 0
+}
+
+async function measureTabbarHeight(): Promise<void> {
+  await nextTick()
+  Taro.createSelectorQuery()
+    .select('.tab-bar')
+    .boundingClientRect((rect: SelectorRect | SelectorRect[] | null) => {
+      const height = normalizeRectHeight(rect)
+      if (!height) return
+      Taro.eventCenter.trigger(CUSTOM_TABBAR_HEIGHT_EVENT, height)
+      void Taro.setStorage({ key: CUSTOM_TABBAR_HEIGHT_STORAGE_KEY, data: height })
+    })
+    .exec()
+}
+
 // ── 每次页面显示时重新检测当前 tab ──────────────────────
 useDidShow(() => {
   const pages = Taro.getCurrentPages()
@@ -65,6 +91,8 @@ useDidShow(() => {
       selected.value = matched
     }
   }
+  void measureTabbarHeight()
+  window.setTimeout(() => void measureTabbarHeight(), 120)
 })
 
 function onTabTap(key: string, index: number) {
@@ -72,6 +100,11 @@ function onTabTap(key: string, index: number) {
   selected.value = index
   Taro.switchTab({ url: pageMap[key] })
 }
+
+onMounted(() => {
+  void measureTabbarHeight()
+  window.setTimeout(() => void measureTabbarHeight(), 120)
+})
 </script>
 
 <style lang="scss">

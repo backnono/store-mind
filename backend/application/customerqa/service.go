@@ -42,7 +42,7 @@ type ChatResponse struct {
 
 // ChatResponseMeta 对话响应的诊断元信息，便于排查路由和置信度问题。
 type ChatResponseMeta struct {
-	Route         string  `json:"route,omitempty"`          // 路由类型（tool / rag / hybrid / fallback）
+	Route         string  `json:"route,omitempty"`          // 路由类型（tool / rag / hybrid / fallback / agent）
 	Confidence    float64 `json:"confidence,omitempty"`     // 意图置信度 0-1
 	RewriteQuery  string  `json:"rewrite_query,omitempty"`  // LLM 改写后的检索查询
 	FallbackUsed  bool    `json:"fallback_used,omitempty"`  // 是否走了降级逻辑
@@ -117,9 +117,7 @@ type ToolCallListRequest struct {
 // —— 应用服务接口 ——
 
 // Service 是 customer-qa 子域的应用服务入口。
-// 聚合了 Chat（核心对话）、FAQ/商品/库存/活动/会话/工具调用查询、反馈保存等能力。
 type Service interface {
-	// Chat 单轮对话：接收用户消息，完成意图识别 → 证据召回 → 答案生成 → 持久化。
 	Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error)
 	SearchFAQ(ctx context.Context, req FAQSearchRequest) ([]domain.FAQ, error)
 	SearchProducts(ctx context.Context, req ProductSearchRequest) ([]domain.Product, error)
@@ -128,160 +126,109 @@ type Service interface {
 	ListActivePromotions(ctx context.Context, req PromotionListRequest) ([]domain.Promotion, error)
 	ListSessions(ctx context.Context, req SessionListRequest) ([]domain.Session, error)
 	ListToolCalls(ctx context.Context, req ToolCallListRequest) ([]domain.ToolCall, error)
-	// SaveFeedback 保存用户对回答的反馈（0=👎, 1=👍）。
 	SaveFeedback(ctx context.Context, messageID, sessionID int64, feedbackValue int8) error
 }
 
+// —— service 实现 ——
+
 // service 是 Service 接口的默认实现。
-// 通过 orchestrator 完成 Chat 流程编排，其余方法直接委托给 domain.Repository。
+// Agent 循环架构：用 Agent（LLM tool calling）替代了 orchestrator + contextResolver。
 type service struct {
-	repo            domain.Repository
-	log             Logger
-	orchestrator    Orchestrator
-	sessionManager  SessionManager  // S1: 会话状态机
-	contextResolver ContextResolver // S1: 指代消解器
-	guideEngine     GuideEngine     // S1: 主动引导引擎
+	repo        domain.Repository
+	log         Logger
+	agent       *Agent       // Agent 循环（LLM tool calling）
+	fallback    Orchestrator // 降级编排器（LLM 不可用时）
+	guideEngine GuideEngine  // 引导引擎
 }
 
-// ServiceConfig S1 模块注入配置。
+// ServiceConfig Agent 循环模式的服务注入配置。
 type ServiceConfig struct {
-	Repo            domain.Repository
-	Log             Logger
-	Orchestrator    Orchestrator
-	SessionManager  SessionManager
-	ContextResolver ContextResolver
-	GuideEngine     GuideEngine
+	Repo        domain.Repository
+	Log         Logger
+	Agent       *Agent
+	Fallback    Orchestrator
+	GuideEngine GuideEngine
 }
 
-// NewService 创建默认的 customer-qa 应用服务。
-// 编排器使用 fallback（关键词匹配）模式，适合 LLM 不可用时的降级场景。
+// NewService 创建仅使用降级编排器的应用服务（无 LLM）。
 func NewService(repo domain.Repository, log Logger) Service {
-	return NewServiceWithOrchestrator(repo, log, nil)
+	return NewServiceWithConfig(ServiceConfig{
+		Repo: repo,
+		Log:  log,
+	})
 }
 
-// NewServiceWithOrchestrator 创建带编排器的应用服务。
-// 当 orchestrator 为 nil 时，自动回退到 fallback 编排器（关键词路由）。
-// 当 log 为 nil 时，使用 nopLogger 静默日志。
-func NewServiceWithOrchestrator(repo domain.Repository, log Logger, orchestrator Orchestrator) Service {
-	return NewServiceWithConfig(
-		ServiceConfig{
-			Repo:         repo,
-			Log:          log,
-			Orchestrator: orchestrator,
-		},
-	)
-}
-
-// NewServiceWithConfig 使用完整配置创建应用服务（S1 入口）。
-// 未注入的 S1 组件为 nil 时，新流程自动降级为旧流程。
+// NewServiceWithConfig 使用完整配置创建应用服务（Agent 循环模式）。
 func NewServiceWithConfig(cfg ServiceConfig) Service {
 	log := cfg.Log
 	if log == nil {
 		log = nopLogger{}
 	}
-	orch := cfg.Orchestrator
-	if orch == nil {
-		orch = newDefaultOrchestrator(cfg.Repo, log)
+	fallback := cfg.Fallback
+	if fallback == nil {
+		fallback = newFallbackOrchestrator(cfg.Repo, log)
 	}
 	return &service{
-		repo:            cfg.Repo,
-		log:             log,
-		orchestrator:    orch,
-		sessionManager:  cfg.SessionManager,
-		contextResolver: cfg.ContextResolver,
-		guideEngine:     cfg.GuideEngine,
+		repo:        cfg.Repo,
+		log:         log,
+		agent:       cfg.Agent,
+		fallback:    fallback,
+		guideEngine: cfg.GuideEngine,
 	}
 }
 
-// UsesPrimaryOrchestrator 判断当前 service 是否使用了主编排器（即 analyzer/composer/retriever 三者齐全）。
-// 用于 bootstrap 层判断是否已接入 LLM sidecar。
+// UsesPrimaryOrchestrator 判断当前 service 是否使用了 Agent 循环（即具备 LLM 能力）。
 func UsesPrimaryOrchestrator(svc Service) bool {
 	impl, ok := svc.(*service)
-	if !ok || impl.orchestrator == nil {
+	if !ok || impl.agent == nil {
 		return false
 	}
-	orch, ok := impl.orchestrator.(*defaultOrchestrator)
-	if !ok {
-		return false
-	}
-	return orch.analyzer != nil && orch.composer != nil && orch.retriever != nil
+	return impl.agent.UsesLLM()
 }
 
-// Chat 处理单轮对话的完整流程（S1 升级版）：
-//  1. 参数校验 & Session 解析（无则创建）
-//  2. 持久化用户消息
-//  3. S1: 加载会话上下文（状态机 + context_stack）
-//  4. S1: 入口适配（first_open / zone_scan / resume）
-//  5. 交由 orchestrator 执行意图识别 → 召回 → 答案生成
-//  6. S1: GuideEngine 追加引导芯片
-//  7. 持久化 AI 回复（含会话状态 + context_stack）
+// —— Chat 核心方法（Agent 循环版）——
+
+// Chat 处理单轮对话的 Agent 循环流程：
+//
+//	① 参数校验 & Session 解析
+//	② 入口适配（first_open / zone_scan / resume / promo / product_detail）
+//	③ 持久化用户消息
+//	④ 加载历史 → Agent 循环
+//	⑤ LLM 不可用时退回到 fallback
+//	⑥ 持久化 AI 回复 + 引导芯片
 func (s *service) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
-	// 参数校验
+	// ① 参数校验
 	if req.StoreID <= 0 || strings.TrimSpace(req.Message) == "" {
 		s.log.Warn("app_chat_invalid_argument", "request_id", req.RequestID, "store_id", req.StoreID)
 		return nil, domain.ErrInvalidArgument
 	}
 	if strings.TrimSpace(req.Channel) == "" {
-		req.Channel = "miniapp" // 默认小程序渠道
+		req.Channel = "miniapp"
 	}
 	req.Message = strings.TrimSpace(req.Message)
 
-	s.log.Info(
-		"app_chat_start",
-		"request_id",
-		req.RequestID,
-		"store_id",
-		req.StoreID,
-		"channel",
-		req.Channel,
-		"entry_mode",
-		req.EntryMode,
+	s.log.Info("app_chat_start",
+		"request_id", req.RequestID, "store_id", req.StoreID,
+		"channel", req.Channel, "entry_mode", req.EntryMode,
 	)
 
-	// 步骤 1：解析或创建 Session
+	// 解析或创建 Session
 	session, err := s.resolveSession(ctx, req)
 	if err != nil {
-		s.log.Error(
-			"app_chat_resolve_session_failed",
-			"request_id",
-			req.RequestID,
-			"session_id",
-			req.SessionID,
-			"error",
-			err,
-		)
+		s.log.Error("app_chat_resolve_session_failed", "request_id", req.RequestID, "error", err)
 		return nil, err
 	}
 
-	// S1: 加载会话上下文
-	var sessionCtx *SessionContext
-	if s.sessionManager != nil {
-		sessionCtx, err = s.sessionManager.LoadSession(ctx, session.ID)
-		if err != nil {
-			s.log.Warn(
-				"app_chat_session_load_failed",
-				"request_id",
-				req.RequestID,
-				"session_id",
-				session.ID,
-				"error",
-				err,
-			)
-		}
-	}
-	if sessionCtx == nil {
-		sessionCtx = &SessionContext{State: StateIdle}
-	}
-
-	// S1: 入口适配 — 当 entry_mode 指定且为首轮对话时，生成适应回答
-	if s.isFirstMessage(sessionCtx) {
+	// ② 入口适配（首轮消息时触发）
+	isFirst := s.isFirstMessageInSession(ctx, session.ID)
+	if isFirst {
 		switch req.EntryMode {
 		case "first_open":
 			return s.entryFirstOpen(ctx, req, session)
 		case "zone_scan":
 			return s.entryZoneScan(ctx, req, session)
 		case "resume":
-			return s.entryResume(ctx, req, session, sessionCtx)
+			return s.entryResume(ctx, req, session)
 		case "promo":
 			return s.entryPromo(ctx, req, session)
 		case "product_detail":
@@ -289,397 +236,226 @@ func (s *service) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, err
 		}
 	}
 
-	// 步骤 2：持久化用户消息
-	msg, err := s.repo.CreateMessage(
-		ctx,
-		&domain.Message{SessionID: session.ID, Role: "user", Content: req.Message, Intent: ""},
-	)
+	// ③ 持久化用户消息
+	msg, err := s.repo.CreateMessage(ctx, &domain.Message{
+		SessionID: session.ID,
+		Role:      "user",
+		Content:   req.Message,
+	})
 	if err != nil {
-		s.log.Error(
-			"app_chat_create_message_failed",
-			"request_id",
-			req.RequestID,
-			"session_id",
-			session.ID,
-			"error",
-			err,
-		)
+		s.log.Error("app_chat_create_message_failed", "request_id", req.RequestID, "session_id", session.ID, "error", err)
 		return nil, err
 	}
 
-	// S1: ContextResolver 指代消解（L1/L2/L3）
-	var resolvedEntities []domain.ResolvedEntity
-	if s.contextResolver != nil && !s.isFirstMessage(sessionCtx) {
-		resolveResult, err := s.contextResolver.Resolve(ctx, ResolveRequest{
-			Message:       req.Message,
-			SessionState:  sessionCtx.State,
-			FocusEntities: sessionCtx.FocusEntityIDs,
-			ContextStack:  sessionCtx.ContextStack,
+	// ④ Agent 循环（尝试 LLM tool calling）
+	loopResult := s.runAgentLoop(ctx, req, session.ID, msg.ID)
+
+	// ⑤ 引导芯片
+	var guidanceChips []GuidanceChip
+	if s.guideEngine != nil {
+		guidanceChips = s.guideEngine.Evaluate(GuideContext{
+			Intent:   loopResult.Intent,
+			Message:  req.Message,
+			Products: extractGuideProducts(loopResult.Cards),
 		})
-		if err != nil {
-			s.log.Warn("app_chat_resolve_failed", "request_id", req.RequestID, "error", err)
-		} else if resolveResult != nil && resolveResult.NeedsClarify {
-			// L3: 需要澄清 → 直接返回澄清话术
-			return s.clarifyResponse(ctx, session, resolveResult)
-		} else if resolveResult != nil {
-			resolvedEntities = resolveResult.ResolvedEntities
-		}
 	}
 
-	// 步骤 3：编排执行
-	orchReq := OrchestratorRequest{
-		RequestID:        req.RequestID,
-		StoreID:          req.StoreID,
-		SessionID:        session.ID,
-		MessageID:        msg.ID,
-		UserID:           req.UserID,
-		Channel:          req.Channel,
-		Message:          req.Message,
-		SessionContext:   sessionCtx,       // S1: 传入会话上下文
-		ResolvedEntities: resolvedEntities, // S1: 传入消解后的实体
-	}
-	result, err := s.orchestrator.Run(ctx, orchReq)
+	// ⑥ 持久化 AI 回复
+	assistantMsg, err := s.repo.CreateMessage(ctx, &domain.Message{
+		SessionID: session.ID,
+		Role:      "assistant",
+		Content:   loopResult.Answer,
+		Intent:    loopResult.Intent,
+	})
 	if err != nil {
-		s.log.Error("app_chat_orchestrator_failed", "request_id", req.RequestID, "session_id", session.ID, "error", err)
+		s.log.Error("app_chat_create_assistant_message_failed", "request_id", req.RequestID, "session_id", session.ID, "error", err)
 		return nil, err
 	}
 
-	// S1: GuideEngine 追加引导芯片（传入 Products 供替代推荐等）
-	guidanceChips := result.GuidanceChips
-	if s.guideEngine != nil && len(guidanceChips) == 0 {
-		products := s.extractProductsFromEvidence(result.Evidence)
-		// fallback orchestrator 不产生 Evidence，从 Cards 补充
-		if len(products) == 0 {
-			products = s.extractProductsFromCards(result.Cards)
-		}
-		guidanceChips = s.guideEngine.Evaluate(
-			GuideContext{
-				Intent:       result.Decision.Intent,
-				Decision:     result.Decision,
-				Message:      req.Message,
-				Evidence:     result.Evidence,
-				SessionState: sessionCtx.State,
-				Products:     products,
-			},
-		)
-	}
-
-	// S1: 更新 FocusEntityIDs — 从消解结果中提取
-	newFocusIDs := buildFocusFromResolution(resolvedEntities, sessionCtx.FocusEntityIDs)
-
-	// S1: 计算新的会话状态和 context_stack
-	newState := StateTransition(sessionCtx.State, result.Decision.Intent, req.Message)
-	stateStr := string(newState)
-	turnSummary := BuildTurnSummary(
-		sessionCtx.ContextStack,
-		result.Decision.Intent,
-		resolvedEntities,
-		result.Decision.Route,
-		result.Answer,
-	)
-	newStack := AppendContextStack(sessionCtx.ContextStack, turnSummary, 5)
-
-	// 序列化
-	ctxStackJSON, _ := MarshalContextStack(newStack)
-	focusJSON, _ := MarshalFocusEntityIDs(newFocusIDs)
-
-	// 步骤 4：持久化 AI 回复（含会话状态）
-	_ = ctxStackJSON // 序列化已在 CreateMessage 内通过 Marshal 处理
-	_ = focusJSON
-	assistantMsg, err := s.repo.CreateMessage(
-		ctx, &domain.Message{
-			SessionID:      session.ID,
-			Role:           "assistant",
-			Content:        result.Answer,
-			Intent:         result.Decision.Intent,
-			ContextState:   &stateStr,
-			FocusEntityIDs: newFocusIDs,
-			ContextStack:   newStack,
-		},
-	)
-	if err != nil {
-		s.log.Error(
-			"app_chat_create_assistant_message_failed",
-			"request_id",
-			req.RequestID,
-			"session_id",
-			session.ID,
-			"error",
-			err,
-		)
-		return nil, err
-	}
-
-	// 步骤 5：持久化决策日志
-	s.persistDecisionLog(ctx, session.ID, msg.ID, result.Decision)
-
-	s.log.Info(
-		"app_chat_success",
-		"request_id",
-		req.RequestID,
-		"session_id",
-		session.ID,
-		"message_id",
-		assistantMsg.ID,
-		"intent",
-		result.Decision.Intent,
-		"state",
-		newState,
+	s.log.Info("app_chat_success",
+		"request_id", req.RequestID, "session_id", session.ID,
+		"message_id", assistantMsg.ID, "route", loopResult.Route,
 	)
 	return &ChatResponse{
 		SessionID:       session.ID,
 		MessageID:       assistantMsg.ID,
-		Intent:          result.Decision.Intent,
-		Answer:          result.Answer,
-		Cards:           result.Cards,
+		Intent:          loopResult.Intent,
+		Answer:          loopResult.Answer,
+		Cards:           loopResult.Cards,
 		GuidanceChips:   guidanceChips,
-		HandoffRequired: result.Decision.NeedsHandoff,
+		HandoffRequired: loopResult.Handoff,
 		Meta: ChatResponseMeta{
-			Route:         result.Decision.Route,
-			Confidence:    result.Decision.Confidence,
-			RewriteQuery:  result.Decision.RewrittenQuery,
-			FallbackUsed:  result.Decision.FallbackUsed,
-			EvidenceCount: len(result.Evidence),
+			Route:         loopResult.Route,
+			Confidence:    loopResult.Confidence,
+			FallbackUsed:  !loopResult.AgentUsed,
+			EvidenceCount: loopResult.EvidenceCount,
 		},
 	}, nil
 }
 
-// persistDecisionLog 将编排决策（意图、路由、置信度等）持久化到 ChatDecisionLog 表。
-// 仅当 repo 实现了 DecisionLogRepository 接口时才执行，否则静默跳过。
-// 写入失败仅记录日志不中断流程，因为决策日志属于可观测性数据，不影响主链路。
-func (s *service) persistDecisionLog(ctx context.Context, sessionID, messageID int64, decision Decision) {
-	repo, ok := s.repo.(domain.DecisionLogRepository)
-	if !ok {
-		return
+// agentLoopResult Agent 循环的内部结果，用于传递给 GuideEngine 和组装 ChatResponse。
+type agentLoopResult struct {
+	Answer        string
+	Cards         []ChatCard
+	Intent        string
+	Handoff       bool
+	AgentUsed     bool
+	Confidence    float64
+	Route         string
+	EvidenceCount int
+}
+
+// runAgentLoop 尝试通过 Agent 循环处理用户消息。
+func (s *service) runAgentLoop(
+	ctx context.Context,
+	req ChatRequest,
+	sessionID, messageID int64,
+) agentLoopResult {
+	// 无 Agent（无 LLM）→ 直接走 fallback
+	if s.agent == nil || !s.agent.UsesLLM() {
+		result, err := s.fallback.Run(ctx, OrchestratorRequest{
+			RequestID: req.RequestID,
+			StoreID:   req.StoreID,
+			SessionID: sessionID,
+			MessageID: messageID,
+			UserID:    req.UserID,
+			Channel:   req.Channel,
+			Message:   req.Message,
+		})
+		if err != nil {
+			s.log.Error("app_chat_fallback_failed", "request_id", req.RequestID, "error", err)
+			return agentLoopResult{
+				Answer: "暂时无法处理你的问题，请稍后再试或联系人工客服。",
+				Intent: "fallback",
+				Route:  "fallback",
+			}
+		}
+		return agentLoopResult{
+			Answer:        result.Answer,
+			Cards:         result.Cards,
+			Intent:        result.Decision.Intent,
+			Handoff:       result.Decision.NeedsHandoff,
+			Confidence:    result.Decision.Confidence,
+			Route:         "fallback",
+			EvidenceCount: len(result.Evidence),
+		}
 	}
-	_, err := repo.CreateDecisionLog(
-		ctx, &domain.ChatDecisionLog{
-			SessionID:       sessionID,
-			MessageID:       messageID,
-			Intent:          decision.Intent,
-			Route:           decision.Route,
-			RewriteQuery:    decision.RewrittenQuery,
-			Confidence:      decision.Confidence,
-			FallbackUsed:    decision.FallbackUsed,
-			HandoffRequired: decision.NeedsHandoff,
-		},
-	)
+
+	// 加载消息历史
+	history, _ := s.repo.ListRecentMessages(ctx, sessionID, 20)
+	agentHistory := ConvertToAgentMessages(history)
+
+	// 追加本轮用户消息
+	agentHistory = append(agentHistory, AgentMessage{
+		Role:    "user",
+		Content: req.Message,
+	})
+
+	// 运行 Agent 循环
+	result, err := s.agent.Run(ctx, AgentRunRequest{
+		StoreID:     req.StoreID,
+		SessionID:   sessionID,
+		MessageID:   messageID,
+		History:     agentHistory,
+		UserMessage: req.Message,
+	})
 	if err != nil {
-		s.log.Error("app_chat_decision_log_failed", "session_id", sessionID, "message_id", messageID, "error", err)
+		s.log.Warn("app_chat_agent_failed", "request_id", req.RequestID, "error", err)
+		// 退回到 fallback
+		fbResult, fbErr := s.fallback.Run(ctx, OrchestratorRequest{
+			RequestID: req.RequestID,
+			StoreID:   req.StoreID,
+			SessionID: sessionID,
+			MessageID: messageID,
+			UserID:    req.UserID,
+			Channel:   req.Channel,
+			Message:   req.Message,
+		})
+		if fbErr != nil {
+			return agentLoopResult{
+				Answer: "暂时无法处理你的问题，请稍后再试或联系人工客服。",
+				Intent: "fallback",
+				Route:  "fallback",
+			}
+		}
+		return agentLoopResult{
+			Answer:        fbResult.Answer,
+			Cards:         fbResult.Cards,
+			Intent:        fbResult.Decision.Intent,
+			Handoff:       fbResult.Decision.NeedsHandoff,
+			Confidence:    fbResult.Decision.Confidence,
+			Route:         "fallback",
+			EvidenceCount: len(fbResult.Evidence),
+		}
+	}
+
+	// Agent 循环成功 → 持久化中间消息（tool call + tool result）
+	s.persistAgentMessages(ctx, sessionID, result.UpdatedHistory)
+
+	return agentLoopResult{
+		Answer:    result.FinalAnswer,
+		Cards:     result.Cards,
+		Intent:    "agent",
+		AgentUsed: true,
+		Route:     "agent",
 	}
 }
 
-// SearchFAQ 按门店和关键词检索 FAQ，limit 范围 [1,50]，默认 10。
-func (s *service) SearchFAQ(ctx context.Context, req FAQSearchRequest) ([]domain.FAQ, error) {
-	if req.StoreID <= 0 || strings.TrimSpace(req.Query) == "" {
-		s.log.Warn("app_faq_invalid_argument", "request_id", req.RequestID, "store_id", req.StoreID)
-		return nil, domain.ErrInvalidArgument
+// persistAgentMessages 持久化 Agent 循环中产生的 tool 和 assistant 消息。
+// 用户消息已在循环前持久化，这里只持久化新增的中间消息。
+func (s *service) persistAgentMessages(ctx context.Context, sessionID int64, history []AgentMessage) {
+	domainMsgs := ConvertToDomainMessages(sessionID, history)
+	for _, m := range domainMsgs {
+		// 跳过已在循环前持久化的 user 消息
+		if m.Role == "user" && m.ID != 0 {
+			continue
+		}
+		if _, err := s.repo.CreateMessage(ctx, &m); err != nil {
+			s.log.Warn("agent_persist_message_failed",
+				"role", m.Role,
+				"session_id", sessionID,
+				"error", err,
+			)
+		}
 	}
-	if req.Limit <= 0 {
-		req.Limit = 10
-	}
-	if req.Limit > 50 {
-		req.Limit = 50
-	}
+}
 
-	items, err := s.repo.SearchFAQ(ctx, req.StoreID, req.Query, req.Limit)
+// isFirstMessageInSession 判断会话是否为首条消息（无历史 assistant 消息）。
+func (s *service) isFirstMessageInSession(ctx context.Context, sessionID int64) bool {
+	msgs, err := s.repo.ListRecentMessages(ctx, sessionID, 5)
 	if err != nil {
-		s.log.Error("app_faq_search_failed", "request_id", req.RequestID, "store_id", req.StoreID, "error", err)
-		return nil, err
+		return true
 	}
-	s.log.Info("app_faq_search_success", "request_id", req.RequestID, "store_id", req.StoreID, "count", len(items))
-	return items, nil
+	for _, m := range msgs {
+		if m.Role == "assistant" {
+			return false
+		}
+	}
+	return true
 }
 
-// SearchProducts 按门店和关键词检索商品，limit 范围 [1,50]，默认 10。
-func (s *service) SearchProducts(ctx context.Context, req ProductSearchRequest) ([]domain.Product, error) {
-	if req.StoreID <= 0 || strings.TrimSpace(req.Query) == "" {
-		s.log.Warn("app_product_search_invalid_argument", "request_id", req.RequestID, "store_id", req.StoreID)
-		return nil, domain.ErrInvalidArgument
+// resolveSession 解析或创建会话。
+func (s *service) resolveSession(ctx context.Context, req ChatRequest) (*domain.Session, error) {
+	if req.SessionID > 0 {
+		session, err := s.repo.GetSession(ctx, req.SessionID)
+		if err != nil {
+			return nil, err
+		}
+		if session.StoreID != req.StoreID {
+			return nil, domain.ErrInvalidArgument
+		}
+		return session, nil
 	}
-	if req.Limit <= 0 {
-		req.Limit = 10
-	}
-	if req.Limit > 50 {
-		req.Limit = 50
-	}
-
-	items, err := s.repo.SearchProducts(ctx, req.StoreID, req.Query, req.Limit)
-	if err != nil {
-		s.log.Error("app_product_search_failed", "request_id", req.RequestID, "store_id", req.StoreID, "error", err)
-		return nil, err
-	}
-	s.log.Info("app_product_search_success", "request_id", req.RequestID, "store_id", req.StoreID, "count", len(items))
-	return items, nil
+	return s.repo.CreateSession(ctx, &domain.Session{
+		StoreID: req.StoreID,
+		UserID:  req.UserID,
+		Channel: req.Channel,
+	})
 }
 
-// GetProductLocation 查询指定商品在门店的具体位置（区域 + 货架 + 层）。
-func (s *service) GetProductLocation(ctx context.Context, req ProductLocationRequest) (*domain.ProductLocation, error) {
-	if req.StoreID <= 0 || req.ProductID <= 0 {
-		s.log.Warn(
-			"app_product_location_invalid_argument",
-			"request_id",
-			req.RequestID,
-			"store_id",
-			req.StoreID,
-			"product_id",
-			req.ProductID,
-		)
-		return nil, domain.ErrInvalidArgument
-	}
+// —— 入口适配方法 ——
 
-	item, err := s.repo.GetProductLocation(ctx, req.StoreID, req.ProductID)
-	if err != nil {
-		s.log.Error(
-			"app_product_location_failed",
-			"request_id",
-			req.RequestID,
-			"store_id",
-			req.StoreID,
-			"product_id",
-			req.ProductID,
-			"error",
-			err,
-		)
-		return nil, err
-	}
-	s.log.Info(
-		"app_product_location_success",
-		"request_id",
-		req.RequestID,
-		"store_id",
-		req.StoreID,
-		"product_id",
-		req.ProductID,
-	)
-	return item, nil
-}
-
-// GetInventory 查询指定 SKU 的库存数量。
-func (s *service) GetInventory(ctx context.Context, req InventoryRequest) (*domain.Inventory, error) {
-	if req.StoreID <= 0 || req.SKUID <= 0 {
-		s.log.Warn(
-			"app_inventory_invalid_argument",
-			"request_id",
-			req.RequestID,
-			"store_id",
-			req.StoreID,
-			"sku_id",
-			req.SKUID,
-		)
-		return nil, domain.ErrInvalidArgument
-	}
-
-	item, err := s.repo.GetInventory(ctx, req.StoreID, req.SKUID)
-	if err != nil {
-		s.log.Error(
-			"app_inventory_failed",
-			"request_id",
-			req.RequestID,
-			"store_id",
-			req.StoreID,
-			"sku_id",
-			req.SKUID,
-			"error",
-			err,
-		)
-		return nil, err
-	}
-	s.log.Info("app_inventory_success", "request_id", req.RequestID, "store_id", req.StoreID, "sku_id", req.SKUID)
-	return item, nil
-}
-
-// ListActivePromotions 列出门店当前在有效期内的活动，limit 范围 [1,50]，默认 10。
-func (s *service) ListActivePromotions(ctx context.Context, req PromotionListRequest) ([]domain.Promotion, error) {
-	if req.StoreID <= 0 {
-		s.log.Warn("app_promotion_list_invalid_argument", "request_id", req.RequestID, "store_id", req.StoreID)
-		return nil, domain.ErrInvalidArgument
-	}
-	if req.Limit <= 0 {
-		req.Limit = 10
-	}
-	if req.Limit > 50 {
-		req.Limit = 50
-	}
-	if req.Now.IsZero() {
-		req.Now = time.Now()
-	}
-
-	items, err := s.repo.ListActivePromotions(ctx, req.StoreID, req.Now, req.Limit)
-	if err != nil {
-		s.log.Error("app_promotion_list_failed", "request_id", req.RequestID, "store_id", req.StoreID, "error", err)
-		return nil, err
-	}
-	s.log.Info("app_promotion_list_success", "request_id", req.RequestID, "store_id", req.StoreID, "count", len(items))
-	return items, nil
-}
-
-// ListSessions 分页获取门店的会话列表，limit 范围 [1,100]，默认 20。
-func (s *service) ListSessions(ctx context.Context, req SessionListRequest) ([]domain.Session, error) {
-	if req.StoreID <= 0 {
-		return nil, domain.ErrInvalidArgument
-	}
-	if req.Limit <= 0 {
-		req.Limit = 20
-	}
-	if req.Limit > 100 {
-		req.Limit = 100
-	}
-	return s.repo.ListSessions(ctx, req.StoreID, req.Limit)
-}
-
-// ListToolCalls 查询指定会话的工具调用记录，limit 范围 [1,100]，默认 20。
-func (s *service) ListToolCalls(ctx context.Context, req ToolCallListRequest) ([]domain.ToolCall, error) {
-	if req.SessionID <= 0 {
-		return nil, domain.ErrInvalidArgument
-	}
-	if req.Limit <= 0 {
-		req.Limit = 20
-	}
-	if req.Limit > 100 {
-		req.Limit = 100
-	}
-	return s.repo.ListToolCalls(ctx, req.SessionID, req.Limit)
-}
-
-// SaveFeedback 保存用户对回答的反馈（👍=1, 👎=0）。
-// feedbackValue 仅接受 0 或 1，其余值视为非法参数。
-// 要求 repo 实现了 FeedbackRepository 接口，否则返回错误。
-func (s *service) SaveFeedback(ctx context.Context, messageID, sessionID int64, feedbackValue int8) error {
-	if messageID <= 0 || sessionID <= 0 {
-		return domain.ErrInvalidArgument
-	}
-	if feedbackValue != 0 && feedbackValue != 1 {
-		return domain.ErrInvalidArgument
-	}
-	feedbackRepo, ok := s.repo.(domain.FeedbackRepository)
-	if !ok {
-		s.log.Error("app_feedback_repo_not_available")
-		return domain.ErrInvalidArgument
-	}
-	_, err := feedbackRepo.CreateFeedback(
-		ctx, &domain.Feedback{
-			MessageID:     messageID,
-			SessionID:     sessionID,
-			FeedbackValue: feedbackValue,
-		},
-	)
-	if err != nil {
-		s.log.Error("app_feedback_create_failed", "message_id", messageID, "session_id", sessionID, "error", err)
-		return err
-	}
-	s.log.Info("app_feedback_saved", "message_id", messageID, "session_id", sessionID, "value", feedbackValue)
-	return nil
-}
-
-// —— S1: 入口适配方法 ——
-
-// isFirstMessage 判断是否为会话的首条消息（无历史 assistant 消息）。
-func (s *service) isFirstMessage(ctx *SessionContext) bool {
-	return ctx.State == StateIdle && len(ctx.ContextStack) == 0
-}
-
-// entryFirstOpen 首次破冰入口：返回预设问题列表。
+// entryFirstOpen 首次破冰入口。
 func (s *service) entryFirstOpen(ctx context.Context, req ChatRequest, session *domain.Session) (*ChatResponse, error) {
 	answer := "您好！我是小王，您身边的数字店员。\n\n店里的一切都可以问我：商品在哪儿、还有没有货、今天有什么活动、怎么付款……"
 	guidanceChips := []GuidanceChip{
@@ -688,21 +464,15 @@ func (s *service) entryFirstOpen(ctx context.Context, req ChatRequest, session *
 		{Text: "🥤 低糖饮料有哪些？", Prompt: "低糖饮料有哪些？"},
 		{Text: "💳 怎么付款？", Prompt: "怎么付款？"},
 	}
-
-	stateStr := string(StateIdle)
-	msg, err := s.repo.CreateMessage(
-		ctx, &domain.Message{
-			SessionID:    session.ID,
-			Role:         "assistant",
-			Content:      answer,
-			Intent:       "greeting",
-			ContextState: &stateStr,
-		},
-	)
+	msg, err := s.repo.CreateMessage(ctx, &domain.Message{
+		SessionID: session.ID,
+		Role:      "assistant",
+		Content:   answer,
+		Intent:    "greeting",
+	})
 	if err != nil {
 		return nil, err
 	}
-
 	return &ChatResponse{
 		SessionID:     session.ID,
 		MessageID:     msg.ID,
@@ -713,9 +483,8 @@ func (s *service) entryFirstOpen(ctx context.Context, req ChatRequest, session *
 	}, nil
 }
 
-// entryZoneScan 货架扫码入口：展示当前区域商品列表。
+// entryZoneScan 货架扫码入口。
 func (s *service) entryZoneScan(ctx context.Context, req ChatRequest, session *domain.Session) (*ChatResponse, error) {
-	// S1: 使用 zone_id/shelf_id 过滤当前货架商品
 	products, err := s.repo.ListProductsByLocation(ctx, req.StoreID, req.ZoneID, req.ShelfID, 10)
 	if err != nil {
 		s.log.Warn("app_entry_zone_scan_list_failed", "error", err)
@@ -734,30 +503,23 @@ func (s *service) entryZoneScan(ctx context.Context, req ChatRequest, session *d
 	for _, p := range products {
 		loc, err := s.repo.GetProductLocation(ctx, req.StoreID, p.ID)
 		if err == nil {
-			cards = append(
-				cards, ChatCard{
-					Type:     "product",
-					Name:     p.Name,
-					Location: loc.ZoneName + " " + loc.ShelfCode + " 货架",
-				},
-			)
+			cards = append(cards, ChatCard{
+				Type:     "product",
+				Name:     p.Name,
+				Location: loc.ZoneName + " " + loc.ShelfCode + " 货架",
+			})
 		}
 	}
 
-	stateStr := string(StateListBrowse)
-	msg, err := s.repo.CreateMessage(
-		ctx, &domain.Message{
-			SessionID:    session.ID,
-			Role:         "assistant",
-			Content:      answer,
-			Intent:       "zone_scan",
-			ContextState: &stateStr,
-		},
-	)
+	msg, err := s.repo.CreateMessage(ctx, &domain.Message{
+		SessionID: session.ID,
+		Role:      "assistant",
+		Content:   answer,
+		Intent:    "zone_scan",
+	})
 	if err != nil {
 		return nil, err
 	}
-
 	return &ChatResponse{
 		SessionID: session.ID,
 		MessageID: msg.ID,
@@ -768,39 +530,28 @@ func (s *service) entryZoneScan(ctx context.Context, req ChatRequest, session *d
 	}, nil
 }
 
-// entryResume 历史会话恢复入口：生成 Context Bridge 文案。
-func (s *service) entryResume(
-	ctx context.Context,
-	req ChatRequest,
-	session *domain.Session,
-	sessionCtx *SessionContext,
-) (*ChatResponse, error) {
-	answer := "欢迎回来！" + s.buildContextBridge(sessionCtx)
-
-	stateStr := string(sessionCtx.State)
-	msg, err := s.repo.CreateMessage(
-		ctx, &domain.Message{
-			SessionID:    session.ID,
-			Role:         "assistant",
-			Content:      answer,
-			Intent:       "resume",
-			ContextState: &stateStr,
-		},
-	)
+// entryResume 历史会话恢复入口。
+func (s *service) entryResume(ctx context.Context, req ChatRequest, session *domain.Session) (*ChatResponse, error) {
+	answer := "欢迎回来！有什么需要帮您的吗？"
+	msg, err := s.repo.CreateMessage(ctx, &domain.Message{
+		SessionID: session.ID,
+		Role:      "assistant",
+		Content:   answer,
+		Intent:    "resume",
+	})
 	if err != nil {
 		return nil, err
 	}
-
 	return &ChatResponse{
 		SessionID: session.ID,
 		MessageID: msg.ID,
 		Intent:    "resume",
 		Answer:    answer,
-		Meta:      ChatResponseMeta{Route: "entry_resume", FallbackUsed: true},
+		Meta:      ChatResponseMeta{Route: "entry_resume"},
 	}, nil
 }
 
-// entryPromo 活动入口：展开活动详情。
+// entryPromo 活动入口。
 func (s *service) entryPromo(ctx context.Context, req ChatRequest, session *domain.Session) (*ChatResponse, error) {
 	items, err := s.repo.ListActivePromotions(ctx, req.StoreID, time.Now(), 5)
 	if err != nil || len(items) == 0 {
@@ -808,32 +559,25 @@ func (s *service) entryPromo(ctx context.Context, req ChatRequest, session *doma
 	}
 
 	answer := "今天的活动是" + items[0].Title + "，参与商品有："
-	cards := []ChatCard{
-		{
-			Type:     "promotion",
-			Title:    items[0].Title,
-			Content:  items[0].Description,
-			Validity: items[0].EndAt.Format("01-02 15:04"),
-		},
-	}
+	cards := []ChatCard{{
+		Type:     "promotion",
+		Title:    items[0].Title,
+		Content:  items[0].Description,
+		Validity: items[0].EndAt.Format("01-02 15:04"),
+	}}
 	guidanceChips := []GuidanceChip{
 		{Text: "📍 活动商品在哪里？", Prompt: "活动商品在哪里？"},
 	}
 
-	stateStr := string(StateListBrowse)
-	msg, err := s.repo.CreateMessage(
-		ctx, &domain.Message{
-			SessionID:    session.ID,
-			Role:         "assistant",
-			Content:      answer,
-			Intent:       "promotion",
-			ContextState: &stateStr,
-		},
-	)
+	msg, err := s.repo.CreateMessage(ctx, &domain.Message{
+		SessionID: session.ID,
+		Role:      "assistant",
+		Content:   answer,
+		Intent:    "promotion",
+	})
 	if err != nil {
 		return nil, err
 	}
-
 	return &ChatResponse{
 		SessionID:     session.ID,
 		MessageID:     msg.ID,
@@ -845,11 +589,8 @@ func (s *service) entryPromo(ctx context.Context, req ChatRequest, session *doma
 	}, nil
 }
 
-// entryProductDetail 商品详情入口：展示商品卡片 + 引导。
-func (s *service) entryProductDetail(ctx context.Context, req ChatRequest, session *domain.Session) (
-	*ChatResponse,
-	error,
-) {
+// entryProductDetail 商品详情入口。
+func (s *service) entryProductDetail(ctx context.Context, req ChatRequest, session *domain.Session) (*ChatResponse, error) {
 	products, err := s.repo.SearchProducts(ctx, req.StoreID, req.Message, 1)
 	if err != nil || len(products) == 0 {
 		return s.entryFirstOpen(ctx, req, session)
@@ -862,42 +603,28 @@ func (s *service) entryProductDetail(ctx context.Context, req ChatRequest, sessi
 		locStr = loc.ZoneName + " " + loc.ShelfCode + " 货架"
 	}
 	answer := "为您找到了这个："
-	cards := []ChatCard{
-		{
-			Type:     "product",
-			Name:     p.Name,
-			Location: locStr,
-		},
-	}
-
+	cards := []ChatCard{{
+		Type:     "product",
+		Name:     p.Name,
+		Location: locStr,
+	}}
 	if loc != nil && loc.SKUID != nil {
 		cards[0].SKUID = *loc.SKUID
 	}
-
 	guidanceChips := []GuidanceChip{
 		{Text: "📦 还有几瓶？", Prompt: "还有几瓶？"},
 		{Text: "🥤 同品类还有什么？", Prompt: "同品类还有什么？"},
 	}
 
-	focusIDs := &domain.FocusEntityIDs{ProductIDs: []int64{p.ID}}
-	if loc != nil && loc.SKUID != nil {
-		focusIDs.SKUIDs = []int64{*loc.SKUID}
-	}
-	stateStr := string(StateProductFocus)
-	msg, err := s.repo.CreateMessage(
-		ctx, &domain.Message{
-			SessionID:      session.ID,
-			Role:           "assistant",
-			Content:        answer,
-			Intent:         "product_detail",
-			ContextState:   &stateStr,
-			FocusEntityIDs: focusIDs,
-		},
-	)
+	msg, err := s.repo.CreateMessage(ctx, &domain.Message{
+		SessionID: session.ID,
+		Role:      "assistant",
+		Content:   answer,
+		Intent:    "product_detail",
+	})
 	if err != nil {
 		return nil, err
 	}
-
 	return &ChatResponse{
 		SessionID:     session.ID,
 		MessageID:     msg.ID,
@@ -909,111 +636,124 @@ func (s *service) entryProductDetail(ctx context.Context, req ChatRequest, sessi
 	}, nil
 }
 
-// buildContextBridge 根据会话上下文生成 Context Bridge 文案。
-func (s *service) buildContextBridge(ctx *SessionContext) string {
-	if ctx.DecayAction == DecayConfirmResume {
-		return "对话已经结束很久了，请问需要我帮您什么吗？"
+// —— 其他服务方法 ——
+
+// SearchFAQ 按门店和关键词检索 FAQ。
+func (s *service) SearchFAQ(ctx context.Context, req FAQSearchRequest) ([]domain.FAQ, error) {
+	if req.StoreID <= 0 || strings.TrimSpace(req.Query) == "" {
+		return nil, domain.ErrInvalidArgument
 	}
-	lastAction := ""
-	if len(ctx.ContextStack) > 0 {
-		lastItem := ctx.ContextStack[len(ctx.ContextStack)-1]
-		lastAction = "您之前在看「" + lastItem.SystemSummary + "」，需要继续吗？"
+	if req.Limit <= 0 {
+		req.Limit = 10
 	}
-	if lastAction != "" {
-		return lastAction
+	if req.Limit > 50 {
+		req.Limit = 50
 	}
-	return "有什么需要帮您的吗？"
+	return s.repo.SearchFAQ(ctx, req.StoreID, req.Query, req.Limit)
 }
 
-// —— S1: 消解与引导辅助方法 ——
+// SearchProducts 按门店和关键词检索商品。
+func (s *service) SearchProducts(ctx context.Context, req ProductSearchRequest) ([]domain.Product, error) {
+	if req.StoreID <= 0 || strings.TrimSpace(req.Query) == "" {
+		return nil, domain.ErrInvalidArgument
+	}
+	if req.Limit <= 0 {
+		req.Limit = 10
+	}
+	if req.Limit > 50 {
+		req.Limit = 50
+	}
+	return s.repo.SearchProducts(ctx, req.StoreID, req.Query, req.Limit)
+}
 
-// clarifyResponse 当 ContextResolver L3 触发时，返回澄清话术。
-func (s *service) clarifyResponse(ctx context.Context, session *domain.Session, resolveResult *ResolveResult) (*ChatResponse, error) {
-	stateStr := string(StateIdle)
-	msg, err := s.repo.CreateMessage(ctx, &domain.Message{
-		SessionID:    session.ID,
-		Role:         "assistant",
-		Content:      resolveResult.ClarifyMessage,
-		Intent:       "clarify",
-		ContextState: &stateStr,
+// GetProductLocation 查询指定商品在门店的具体位置。
+func (s *service) GetProductLocation(ctx context.Context, req ProductLocationRequest) (*domain.ProductLocation, error) {
+	if req.StoreID <= 0 || req.ProductID <= 0 {
+		return nil, domain.ErrInvalidArgument
+	}
+	return s.repo.GetProductLocation(ctx, req.StoreID, req.ProductID)
+}
+
+// GetInventory 查询指定 SKU 的库存数量。
+func (s *service) GetInventory(ctx context.Context, req InventoryRequest) (*domain.Inventory, error) {
+	if req.StoreID <= 0 || req.SKUID <= 0 {
+		return nil, domain.ErrInvalidArgument
+	}
+	return s.repo.GetInventory(ctx, req.StoreID, req.SKUID)
+}
+
+// ListActivePromotions 列出门店当前在有效期内的活动。
+func (s *service) ListActivePromotions(ctx context.Context, req PromotionListRequest) ([]domain.Promotion, error) {
+	if req.StoreID <= 0 {
+		return nil, domain.ErrInvalidArgument
+	}
+	if req.Limit <= 0 {
+		req.Limit = 10
+	}
+	if req.Limit > 50 {
+		req.Limit = 50
+	}
+	if req.Now.IsZero() {
+		req.Now = time.Now()
+	}
+	return s.repo.ListActivePromotions(ctx, req.StoreID, req.Now, req.Limit)
+}
+
+// ListSessions 分页获取门店的会话列表。
+func (s *service) ListSessions(ctx context.Context, req SessionListRequest) ([]domain.Session, error) {
+	if req.StoreID <= 0 {
+		return nil, domain.ErrInvalidArgument
+	}
+	if req.Limit <= 0 {
+		req.Limit = 20
+	}
+	if req.Limit > 100 {
+		req.Limit = 100
+	}
+	return s.repo.ListSessions(ctx, req.StoreID, req.Limit)
+}
+
+// ListToolCalls 查询指定会话的工具调用记录。
+func (s *service) ListToolCalls(ctx context.Context, req ToolCallListRequest) ([]domain.ToolCall, error) {
+	if req.SessionID <= 0 {
+		return nil, domain.ErrInvalidArgument
+	}
+	if req.Limit <= 0 {
+		req.Limit = 20
+	}
+	if req.Limit > 100 {
+		req.Limit = 100
+	}
+	return s.repo.ListToolCalls(ctx, req.SessionID, req.Limit)
+}
+
+// SaveFeedback 保存用户对回答的反馈。
+func (s *service) SaveFeedback(ctx context.Context, messageID, sessionID int64, feedbackValue int8) error {
+	if messageID <= 0 || sessionID <= 0 {
+		return domain.ErrInvalidArgument
+	}
+	if feedbackValue != 0 && feedbackValue != 1 {
+		return domain.ErrInvalidArgument
+	}
+	feedbackRepo, ok := s.repo.(domain.FeedbackRepository)
+	if !ok {
+		return domain.ErrInvalidArgument
+	}
+	_, err := feedbackRepo.CreateFeedback(ctx, &domain.Feedback{
+		MessageID:     messageID,
+		SessionID:     sessionID,
+		FeedbackValue: feedbackValue,
 	})
-	if err != nil {
-		return nil, err
-	}
-	return &ChatResponse{
-		SessionID: session.ID,
-		MessageID: msg.ID,
-		Intent:    "clarify",
-		Answer:    resolveResult.ClarifyMessage,
-		Meta:      ChatResponseMeta{Route: RouteFallback},
-	}, nil
+	return err
 }
 
-// extractProductsFromEvidence 从 evidence 列表中提取商品名称列表。
-// 用于 GuideEngine 的替代推荐等场景。
-func (s *service) extractProductsFromEvidence(evidence []Evidence) []domain.Product {
-	if len(evidence) == 0 {
-		return nil
-	}
-	products := make([]domain.Product, 0, len(evidence))
-	for _, ev := range evidence {
-		if ev.Kind == "product_location" || ev.Kind == "inventory" {
-			products = append(products, domain.Product{ID: ev.RecordID, Name: ev.Title})
-		}
-	}
-	return products
-}
-
-// extractProductsFromCards 从 ChatCard 列表中提取商品信息（fallback 编排器不产生 Evidence）。
-func (s *service) extractProductsFromCards(cards []ChatCard) []domain.Product {
+// extractGuideProducts 从 ChatCard 列表中提取商品信息，供 GuideEngine 使用。
+func extractGuideProducts(cards []ChatCard) []domain.Product {
 	products := make([]domain.Product, 0, len(cards))
 	for _, card := range cards {
-		if card.Type == "product" || card.Type == "inventory" {
+		if card.Type == "product" || card.Type == "inventory" || card.Type == "price" {
 			products = append(products, domain.Product{Name: card.Name})
 		}
 	}
 	return products
-}
-
-// buildFocusFromResolution 从消解结果构建新的 FocusEntityIDs。
-// 从 resolvedEntities 提取 product_id/sku_id，若无消解结果则保持原焦点。
-func buildFocusFromResolution(resolved []domain.ResolvedEntity, current *domain.FocusEntityIDs) *domain.FocusEntityIDs {
-	if len(resolved) == 0 {
-		return current
-	}
-	focus := &domain.FocusEntityIDs{}
-	for _, e := range resolved {
-		switch e.Type {
-		case "product":
-			if e.ProductID != nil {
-				focus.ProductIDs = append(focus.ProductIDs, *e.ProductID)
-			}
-		case "sku":
-			if e.SKUID != nil {
-				focus.SKUIDs = append(focus.SKUIDs, *e.SKUID)
-			}
-		}
-	}
-	if len(focus.ProductIDs) == 0 && len(focus.SKUIDs) == 0 {
-		return current
-	}
-	return focus
-}
-
-// resolveSession 解析或创建会话：
-//   - SessionID > 0 : 查询已有会话，校验 StoreID 归属
-//   - SessionID = 0 : 创建新会话
-func (s *service) resolveSession(ctx context.Context, req ChatRequest) (*domain.Session, error) {
-	if req.SessionID > 0 {
-		session, err := s.repo.GetSession(ctx, req.SessionID)
-		if err != nil {
-			return nil, err
-		}
-		// 安全校验：不允许跨门店复用 Session
-		if session.StoreID != req.StoreID {
-			return nil, domain.ErrInvalidArgument
-		}
-		return session, nil
-	}
-	return s.repo.CreateSession(ctx, &domain.Session{StoreID: req.StoreID, UserID: req.UserID, Channel: req.Channel})
 }

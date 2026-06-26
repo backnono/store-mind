@@ -1,12 +1,5 @@
 <template>
-  <scroll-view
-    class="messages"
-    scroll-y
-    :scroll-with-animation="true"
-    :scroll-into-view="scrollIntoView"
-    :enhanced="true"
-    :show-scrollbar="false"
-  >
+  <view class="messages-inner">
     <!-- Context bridge -->
     <view v-if="contextBridge" class="context-bridge">
       您之前在看 <text class="cb-hl">{{ contextBridge }}</text>，需要继续吗？
@@ -16,7 +9,6 @@
     <view
       v-for="msg in filteredMessages"
       :key="msg.id"
-      :id="`msg-${msg.id}`"
     >
       <MessageBubble
         :text="msg.text"
@@ -32,10 +24,11 @@
       />
     </view>
 
-    <!-- Typing dots -->
+    <!-- Typing dots: 对齐无气泡 AI 样式 -->
     <view v-if="isThinking" class="typing-row">
       <view class="msg-avatar clerk-av">王</view>
-      <view class="typing-bubble">
+      <view class="typing-content">
+        <view class="ai-name">王</view>
         <view class="typing-dots">
           <view class="dot"></view>
           <view class="dot"></view>
@@ -44,13 +37,12 @@
       </view>
     </view>
 
-    <!-- 滚动锚点 -->
-    <view id="scroll-bottom" style="height:1px"></view>
-  </scroll-view>
+    <view class="messages-bottom-spacer"></view>
+  </view>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed } from 'vue'
 import type { Message } from '@/types/customerQa'
 import { useChatStore } from '@/stores/chat'
 import MessageBubble from './MessageBubble.vue'
@@ -77,32 +69,18 @@ const getFeedback = (messageId?: number): 0 | 1 | undefined => {
   if (!messageId) return undefined
   return chatStore.getFeedback(messageId)
 }
-
-const scrollIntoView = ref('')
-
-watch(() => [
-  filteredMessages.value.map((m) => `${m.id}:${m.sendStatus ?? ''}`).join('|'),
-  props.isThinking ? 'thinking' : 'idle',
-], async () => {
-  await nextTick()
-  scrollIntoView.value = ''
-  await nextTick()
-  scrollIntoView.value = 'scroll-bottom'
-}, {
-  immediate: true,
-})
 </script>
 
 <style lang="scss">
-.messages {
-  flex: 1;
-  min-height: 0;
-  height: 0;
+.messages-inner {
   box-sizing: border-box;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 24px 20px 360px;
-  scroll-behavior: smooth;
+  min-height: 100%;
+  padding: 24px 20px 0;
+}
+
+.messages-bottom-spacer {
+  height: 16px;
+  flex-shrink: 0;
 }
 
 .context-bridge {
@@ -120,7 +98,7 @@ watch(() => [
   font-weight: 500;
 }
 
-// Typing
+// Typing — 对齐无气泡 AI 样式
 .typing-row {
   display: flex;
   gap: 10px;
@@ -136,7 +114,7 @@ watch(() => [
   justify-content: center;
   font-size: 20px;
   font-weight: 700;
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
 .clerk-av {
@@ -145,17 +123,23 @@ watch(() => [
   box-shadow: 0 2px 10px rgba(201, 134, 58, 0.22);
 }
 
-.typing-bubble {
-  background: #24211d;
-  border-radius: 28px;
-  border-bottom-left-radius: 8px;
-  padding: 18px 24px;
+.typing-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.ai-name {
+  font-size: 22px;
+  font-weight: 600;
+  color: #888;
+  margin-bottom: 6px;
+  letter-spacing: 0.3px;
 }
 
 .typing-dots {
   display: flex;
-  gap: 6px;
-  padding: 4px 0;
+  gap: 8px;
+  padding: 8px 0;
 }
 
 .dot {

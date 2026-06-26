@@ -287,6 +287,61 @@ func (c *PythonLLMClient) postJSONRaw(ctx context.Context, path string, body map
 	return respBody, nil
 }
 
+// ── Agent 循环 Chat 接口 ──────────────────────────────
+
+// Chat 实现 app.LLMClient 接口，调用 Python /llm/chat 进行 Agent 循环中的单次推理。
+// 传入消息列表 + tool_definitions，返回文本或 tool_calls。
+func (c *PythonLLMClient) Chat(ctx context.Context, req app.LLMChatRequest) (*app.LLMChatResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	tools := req.ToolDefinitions
+	if tools == nil {
+		tools = []map[string]any{}
+	}
+
+	body := map[string]any{
+		"messages": req.Messages,
+		"tools":    tools,
+	}
+
+	raw, err := c.postJSONRaw(ctx, "/llm/chat", body)
+	if err != nil {
+		return nil, fmt.Errorf("python llm /llm/chat failed: %w", err)
+	}
+
+	// 解析响应: {content, tool_calls: [{id, name, args}]}
+	type chatResp struct {
+		Content   string `json:"content"`
+		ToolCalls []struct {
+			ID   string          `json:"id"`
+			Name string          `json:"name"`
+			Args json.RawMessage `json:"args"`
+		} `json:"tool_calls"`
+	}
+	var result chatResp
+	if err := json.Unmarshal(raw, &result); err != nil {
+		// 解析失败时当作纯文本回答
+		return &app.LLMChatResponse{
+			Content: string(raw),
+		}, nil
+	}
+
+	calls := make([]app.LLMToolCall, len(result.ToolCalls))
+	for i, tc := range result.ToolCalls {
+		calls[i] = app.LLMToolCall{
+			ID:   tc.ID,
+			Name: tc.Name,
+			Args: tc.Args,
+		}
+	}
+
+	return &app.LLMChatResponse{
+		Content:   result.Content,
+		ToolCalls: calls,
+	}, nil
+}
+
 // ── 指代消解结果 ─────────────────────────────────────
 
 type ResolveResult struct {

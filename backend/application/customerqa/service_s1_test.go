@@ -10,16 +10,15 @@ import (
 
 // ── S1 集成测试 ────────────────────────────────────
 
-// newS1TestService 创建带完整 S1 组件注入的 service，用于集成测试。
+// newS1TestService 创建带完整组件注入的 service，用于集成测试。
+// Agent 循环架构：无 LLM 时自动走 fallback。
 func newS1TestService(repo domain.Repository) Service {
-	orch := newDefaultOrchestrator(repo, fakeLogger{})
+	fallbackOrch := newFallbackOrchestrator(repo, fakeLogger{})
 	return NewServiceWithConfig(ServiceConfig{
-		Repo:            repo,
-		Log:             fakeLogger{},
-		Orchestrator:    orch,
-		SessionManager:  NewSessionManager(repo, fakeLogger{}),
-		ContextResolver: NewContextResolver(nil, fakeLogger{}),
-		GuideEngine:     NewGuideEngine(fakeLogger{}),
+		Repo:        repo,
+		Log:         fakeLogger{},
+		Fallback:    fallbackOrch,
+		GuideEngine: NewGuideEngine(fakeLogger{}),
 	})
 }
 
@@ -227,7 +226,7 @@ func TestS1_InventoryCredibility(t *testing.T) {
 	}
 }
 
-// TestS1_ContextStatePersistence 验证 context_state 被持久化。
+// TestS1_ContextStatePersistence 验证 assistant 消息被持久化。
 func TestS1_ContextStatePersistence(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := newS1TestService(repo)
@@ -244,19 +243,17 @@ func TestS1_ContextStatePersistence(t *testing.T) {
 	if resp.SessionID <= 0 {
 		t.Fatal("expected session_id")
 	}
-	// assistant 消息应被持久化，且包含 context_state
+	// 验证 assistant 消息被持久化
 	foundAssistant := false
 	for _, msg := range repo.messages {
-		if msg.Role == "assistant" && msg.ContextState != nil {
+		if msg.Role == "assistant" {
 			foundAssistant = true
-			if *msg.ContextState != string(StateProductFocus) {
-				t.Logf("context_state = %s, expected product_focus", *msg.ContextState)
-			}
+			t.Logf("assistant message persisted: intent=%s content=%s", msg.Intent, msg.Content)
 			break
 		}
 	}
 	if !foundAssistant {
-		t.Errorf("expected assistant message with context_state, got messages=%+v", repo.messages)
+		t.Errorf("expected assistant message in repo, got messages=%+v", repo.messages)
 	}
 }
 

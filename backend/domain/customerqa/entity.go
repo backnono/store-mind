@@ -13,14 +13,17 @@ type Session struct {
 type Message struct {
 	ID             int64              `json:"id"`
 	SessionID      int64              `json:"session_id"`
-	Role           string             `json:"role"`
+	Role           string             `json:"role"` // user | assistant | tool
 	Content        string             `json:"content"`
 	Intent         string             `json:"intent"`
 	Confidence     *float64           `json:"confidence,omitempty"`
 	ContextState   *string            `json:"context_state,omitempty"`
 	FocusEntityIDs *FocusEntityIDs    `json:"focus_entity_ids,omitempty"`
 	ContextStack   []ContextStackItem `json:"context_stack,omitempty"`
-	CreatedAt      time.Time          `json:"created_at"`
+	// Agent 循环专用字段
+	ToolCallsJSON *string   `json:"tool_calls_json,omitempty"` // assistant 消息的 tool_calls JSON
+	ToolCallID    *string   `json:"tool_call_id,omitempty"`    // tool 消息关联的调用 ID
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 // FocusEntityIDs 当前对话锁定的实体

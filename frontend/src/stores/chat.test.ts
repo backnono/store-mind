@@ -30,7 +30,6 @@ describe('chatStore', () => {
     store.setDraftText('可乐在哪？')
 
     const mockChat = chat as ReturnType<typeof vi.fn>
-    // 延迟 resolve
     mockChat.mockImplementation(
       () =>
         new Promise((resolve) =>
@@ -107,20 +106,17 @@ describe('chatStore', () => {
 
   it('反馈只能应用于助理消息', async () => {
     const store = useChatStore()
-    // 直接添加消息测试
     store.addUserMessage('用户消息')
     store.addAssistantMessage('助理消息', [], [], 1)
 
-    // 对用户消息尝试反馈 — 应该被拒绝（不会调用 API）
     const mockSubmit = submitFeedback as ReturnType<typeof vi.fn>
-    await store.submitFeedback(999, 1) // 不存在的 messageId
+    await store.submitFeedback(999, 1)
     expect(mockSubmit).not.toHaveBeenCalled()
 
-    // 对助理消息反馈
     await store.submitFeedback(1, 1)
     expect(mockSubmit).toHaveBeenCalledWith({
       message_id: 1,
-      session_id: 0, // sessionStore.currentSessionId 默认为 0
+      session_id: 0,
       feedback_value: 1,
     })
   })
@@ -134,15 +130,13 @@ describe('chatStore', () => {
     const mockSubmit = submitFeedback as ReturnType<typeof vi.fn>
     mockSubmit.mockResolvedValue(undefined)
 
-    // 第一次
     await store.submitFeedback(1, 1)
     expect(mockSubmit).toHaveBeenCalledTimes(1)
     expect(store.getFeedback(1)).toBe(1)
 
-    // 第二次 — 不应该再调用 API
     await store.submitFeedback(1, 0)
     expect(mockSubmit).toHaveBeenCalledTimes(1)
-    expect(store.getFeedback(1)).toBe(1) // 保持第一次的值
+    expect(store.getFeedback(1)).toBe(1)
   })
 
   it('draftText 更新后 canSend 变化', () => {
@@ -162,5 +156,36 @@ describe('chatStore', () => {
     await store.sendMessage()
     expect(store.messages.length).toBe(0)
     expect(chat).not.toHaveBeenCalled()
+  })
+
+  // ── Task 4: Session-scoped persistence ──────────────
+
+  it('new chat sends without stale session_id after clearing active session', async () => {
+    const sessionStore = useSessionStore()
+    const store = useChatStore()
+    sessionStore.setSessionId(21)
+    await sessionStore.startNewSession()
+    store.setDraftText('薯片在哪里？')
+
+    const mockChat = chat as ReturnType<typeof vi.fn>
+    mockChat.mockResolvedValue({
+      session_id: 22,
+      message_id: 88,
+      intent: 'product_location',
+      answer: '薯片在零食区',
+      cards: [],
+      guidance_chips: [],
+      handoff_required: false,
+    })
+
+    await store.sendMessage()
+
+    expect(mockChat).toHaveBeenCalledWith({
+      store_id: 1,
+      session_id: undefined,
+      channel: 'miniapp',
+      message: '薯片在哪里？',
+    })
+    expect(sessionStore.currentSessionId).toBe(22)
   })
 })

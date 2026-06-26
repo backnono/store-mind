@@ -43,13 +43,10 @@ function onInput(e: InputEvent) {
 
 <style lang="scss">
 .composer {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: calc(220px + env(safe-area-inset-bottom));
-  z-index: 20;
+  flex-shrink: 0;
+  width: 100%;
   box-sizing: border-box;
-  padding: 16px 20px 24px;
+  padding: 16px 20px 18px;
   background: #1c1b18;
   border-top: 1px solid #2b2925;
   display: flex;

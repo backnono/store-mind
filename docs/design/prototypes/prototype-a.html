@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>便利店AI助手 — 方案A原型</title>
+<style>
+  :root {
+    --bg-deep: #0f0f14;
+    --bg-surface: #1a1a22;
+    --bg-elevated: #24242f;
+    --bg-titlebar: #1e1e2a;
+    --text-primary: #eeeef5;
+    --text-secondary: #8e8ea0;
+    --text-muted: #5c5c6e;
+    --accent-orange: #f59e4b;
+    --accent-orange-glow: rgba(245, 158, 75, 0.15);
+    --accent-green: #4ade80;
+    --border-subtle: #2a2a38;
+    --pill-bg: #1e1e2c;
+    --pill-hover: #2a2a3c;
+    --radius-sm: 10px;
+    --radius-md: 16px;
+    --radius-lg: 24px;
+    --radius-xl: 32px;
+    --font-display: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+    --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+    --shadow-titlebar: 0 1px 0 var(--border-subtle), 0 4px 24px rgba(0,0,0,0.4);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0a0a10;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    font-family: var(--font-display);
+    -webkit-font-smoothing: antialiased;
+    padding: 20px;
+    background-image:
+      radial-gradient(ellipse at 50% 30%, rgba(245, 158, 75, 0.04) 0%, transparent 60%),
+      radial-gradient(ellipse at 80% 70%, rgba(74, 222, 128, 0.03) 0%, transparent 50%);
+  }
+
+  /* ── Phone Frame ── */
+  .phone-frame {
+    width: 393px;
+    height: 852px;
+    background: var(--bg-deep);
+    border-radius: 44px;
+    overflow: hidden;
+    position: relative;
+    box-shadow:
+      0 0 0 3px #1a1a24,
+      0 0 0 6px #111118,
+      0 20px 60px rgba(0,0,0,0.7),
+      0 0 120px rgba(245, 158, 75, 0.06);
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Status Bar ── */
+  .status-bar {
+    height: 54px;
+    padding: 16px 32px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: -0.2px;
+  }
+  .status-icons { display: flex; gap: 6px; align-items: center; }
+  .status-icons span { font-size: 13px; color: var(--text-primary); }
+
+  /* ── Top Nav ── */
+  .top-nav {
+    height: 56px;
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: relative;
+  }
+  .avatar {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent-orange), #e8792b);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 700; color: #fff;
+    flex-shrink: 0;
+    letter-spacing: 1px;
+  }
+  .nav-info {
+    display: flex; flex-direction: column;
+    gap: 2px; flex: 1; min-width: 0;
+  }
+  .nav-name {
+    font-size: 16px; font-weight: 600; color: var(--text-primary);
+    letter-spacing: 0.5px;
+  }
+  .nav-subtitle {
+    font-size: 11px; color: var(--accent-green);
+    display: flex; align-items: center; gap: 5px;
+  }
+  .nav-subtitle::before {
+    content: ''; width: 6px; height: 6px;
+    border-radius: 50%; background: var(--accent-green);
+    box-shadow: 0 0 8px var(--accent-green);
+  }
+  .nav-actions {
+    display: flex; gap: 4px; align-items: center;
+  }
+  .nav-icon-btn {
+    width: 36px; height: 36px;
+    border: none; background: transparent;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+  }
+  .nav-icon-btn:hover { background: var(--bg-elevated); color: var(--text-primary); }
+
+  /* ── CHAT TITLE BAR ═══════════════════════════ */
+  /* This is the CORE redesign element */
+  .chat-title-bar {
+    margin: 6px 16px 0;
+    padding: 10px 14px;
+    background: var(--bg-titlebar);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    box-shadow: var(--shadow-titlebar);
+    position: relative;
+    overflow: hidden;
+  }
+  /* Subtle glow line at top */
+  .chat-title-bar::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 16px; right: 16px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent-orange), transparent);
+    opacity: 0.3;
+  }
+
+  .chat-title-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    flex-shrink: 0;
+    letter-spacing: 0.3px;
+  }
+  .chat-title-shop {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ── The two CORE buttons ── */
+  .title-bar-btns {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  /* Primary: New Chat */
+  .btn-new-chat {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 7px 14px;
+    background: linear-gradient(135deg, var(--accent-orange), #e8792b);
+    border: none;
+    border-radius: var(--radius-sm);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+    white-space: nowrap;
+    font-family: var(--font-display);
+    letter-spacing: 0.3px;
+    box-shadow: 0 2px 12px var(--accent-orange-glow);
+  }
+  .btn-new-chat::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(255,255,255,0.15), transparent);
+    opacity: 0;
+    transition: opacity 0.25s;
+  }
+  .btn-new-chat:hover::after { opacity: 1; }
+  .btn-new-chat:active {
+    transform: scale(0.95);
+    box-shadow: 0 1px 6px var(--accent-orange-glow);
+    transition: all 0.1s;
+  }
+  .btn-new-chat-icon {
+    font-size: 16px; font-weight: 400; line-height: 1;
+  }
+  .btn-new-chat.pulse {
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+
+  /* Secondary: History */
+  .btn-history {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 7px 14px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    white-space: nowrap;
+    font-family: var(--font-display);
+    letter-spacing: 0.3px;
+  }
+  .btn-history:hover {
+    background: var(--pill-hover);
+    color: var(--text-primary);
+    border-color: #3a3a4e;
+  }
+  .btn-history:active {
+    transform: scale(0.95);
+    transition: all 0.1s;
+  }
+  .btn-history-icon {
+    font-size: 15px; line-height: 1;
+  }
+
+  @keyframes pulse-glow {
+    0%, 100% { box-shadow: 0 2px 12px var(--accent-orange-glow); }
+    50% { box-shadow: 0 2px 20px rgba(245, 158, 75, 0.3); }
+  }
+
+  /* ── Chat Area ── */
+  .chat-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 20px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .chat-area::-webkit-scrollbar { width: 0; }
+
+  /* AI Message Bubble */
+  .ai-message {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    animation: fadeInUp 0.5s ease both;
+  }
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .ai-avatar {
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent-orange), #e8792b);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px; font-weight: 700; color: #fff;
+    flex-shrink: 0;
+  }
+  .ai-bubble {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    border-top-left-radius: 4px;
+    padding: 14px 16px;
+    max-width: 280px;
+  }
+  .ai-bubble .greeting {
+    font-size: 14px; font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 6px;
+  }
+  .ai-bubble .desc {
+    font-size: 13px; color: var(--text-secondary);
+    line-height: 1.6;
+  }
+
+  /* Quick Question Pills */
+  .quick-questions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    animation: fadeInUp 0.5s 0.15s ease both;
+  }
+  .quick-pill {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: var(--pill-bg);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: var(--font-display);
+  }
+  .quick-pill:hover {
+    background: var(--pill-hover);
+    color: var(--text-primary);
+    border-color: #3a3a4e;
+    transform: translateX(4px);
+  }
+  .quick-pill-icon {
+    font-size: 18px; flex-shrink: 0;
+  }
+
+  /* ── Input Area ── */
+  .input-area {
+    padding: 10px 16px 12px;
+    border-top: 1px solid var(--border-subtle);
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    background: var(--bg-deep);
+  }
+  .input-box {
+    flex: 1;
+    height: 44px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    padding: 0 18px;
+    font-size: 14px;
+    color: var(--text-primary);
+    font-family: var(--font-display);
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .input-box::placeholder { color: var(--text-muted); }
+  .input-box:focus {
+    border-color: var(--accent-orange);
+    box-shadow: 0 0 0 3px rgba(245, 158, 75, 0.1);
+  }
+  .btn-send {
+    width: 44px; height: 44px;
+    background: linear-gradient(135deg, var(--accent-orange), #e8792b);
+    border: none;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; color: #fff;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+  }
+  .btn-send:active { transform: scale(0.9); }
+
+  /* ── Bottom Tab Bar ── */
+  .tab-bar {
+    height: 84px;
+    padding: 8px 12px 28px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-around;
+    background: var(--bg-deep);
+    border-top: 1px solid var(--border-subtle);
+  }
+  .tab-item {
+    display: flex; flex-direction: column;
+    align-items: center; gap: 4px;
+    cursor: pointer;
+    padding: 4px 12px;
+    transition: all 0.2s;
+  }
+  .tab-icon {
+    width: 26px; height: 26px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+    color: var(--text-muted);
+    transition: all 0.2s;
+  }
+  .tab-item.active .tab-icon {
+    background: linear-gradient(135deg, var(--accent-orange), #e8792b);
+    color: #fff;
+    border-radius: 10px;
+    box-shadow: 0 2px 10px var(--accent-orange-glow);
+  }
+  .tab-label {
+    font-size: 10px; font-weight: 500;
+    color: var(--text-muted);
+    transition: color 0.2s;
+  }
+  .tab-item.active .tab-label { color: var(--accent-orange); }
+
+  /* ── History Drawer Overlay ── */
+  .drawer-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 20;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s;
+  }
+  .drawer-overlay.open {
+    opacity: 1;
+    pointer-events: all;
+  }
+  .drawer {
+    position: absolute;
+    top: 0; left: 0; bottom: 0;
+    width: 300px;
+    background: var(--bg-surface);
+    border-right: 1px solid var(--border-subtle);
+    z-index: 21;
+    transform: translateX(-100%);
+    transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex; flex-direction: column;
+  }
+  .drawer.open { transform: translateX(0); }
+  .drawer-header {
+    padding: 60px 20px 16px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .drawer-title {
+    font-size: 17px; font-weight: 700;
+    color: var(--text-primary);
+  }
+  .drawer-close {
+    width: 32px; height: 32px;
+    border: none; background: var(--bg-elevated);
+    border-radius: 50%;
+    font-size: 16px; color: var(--text-secondary);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.2s;
+  }
+  .drawer-close:hover { background: #333; color: #fff; }
+  .drawer-list {
+    flex: 1; overflow-y: auto;
+    padding: 10px 0;
+  }
+  .drawer-item {
+    padding: 14px 20px;
+    display: flex; align-items: center; gap: 12px;
+    cursor: pointer;
+    transition: background 0.15s;
+    border-left: 3px solid transparent;
+  }
+  .drawer-item:hover { background: var(--bg-elevated); }
+  .drawer-item.active {
+    background: rgba(245, 158, 75, 0.08);
+    border-left-color: var(--accent-orange);
+  }
+  .drawer-item-icon {
+    width: 34px; height: 34px;
+    border-radius: 10px;
+    background: var(--bg-elevated);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+  }
+  .drawer-item-info {
+    display: flex; flex-direction: column;
+    gap: 3px; flex: 1; min-width: 0;
+  }
+  .drawer-item-title {
+    font-size: 14px; font-weight: 500;
+    color: var(--text-primary);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .drawer-item-date {
+    font-size: 11px; color: var(--text-muted);
+  }
+
+  /* ── New Chat Ripple Feedback ── */
+  .ripple-feedback {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%) scale(0);
+    width: 200px; height: 200px;
+    border-radius: 50%;
+    background: rgba(245, 158, 75, 0.1);
+    pointer-events: none;
+    z-index: 30;
+    transition: none;
+  }
+  .ripple-feedback.fire {
+    animation: ripple 0.7s ease-out forwards;
+  }
+  @keyframes ripple {
+    0% { transform: translate(-50%, -50%) scale(0); opacity: 0.6; }
+    100% { transform: translate(-50%, -50%) scale(3); opacity: 0; }
+  }
+
+  /* ── Toast ── */
+  .toast {
+    position: absolute;
+    top: 130px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-20px);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 12px 24px;
+    font-size: 14px; font-weight: 500;
+    color: var(--text-primary);
+    z-index: 40;
+    opacity: 0;
+    pointer-events: none;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+  }
+  .toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+  .toast .toast-icon { margin-right: 6px; }
+
+  /* Responsive */
+  @media (max-width: 420px) {
+    .phone-frame { width: 100vw; height: 100vh; border-radius: 0; }
+  }
+</style>
+</head>
+<body>
+
+<div class="phone-frame" id="phone">
+
+  <!-- Status Bar -->
+  <div class="status-bar">
+    <span>23:30</span>
+    <div class="status-icons">
+      <span>●●●●○</span>
+      <span>WiFi</span>
+      <span>🔋</span>
+    </div>
+  </div>
+
+  <!-- Top Navigation (simplified: NO + / ≡ buttons here) -->
+  <div class="top-nav">
+    <div class="avatar">王</div>
+    <div class="nav-info">
+      <span class="nav-name">小王 · 数字店员</span>
+      <span class="nav-subtitle">阳光便利店 No.3</span>
+    </div>
+    <div class="nav-actions">
+      <button class="nav-icon-btn" title="更多">⋯</button>
+      <button class="nav-icon-btn" title="设置">◎</button>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <!--  CHAT TITLE BAR  —  CORE REDESIGN ELEMENT  -->
+  <!-- ═══════════════════════════════════════════ -->
+  <div class="chat-title-bar">
+    <span class="chat-title-label">💬 对话</span>
+    <span class="chat-title-shop">阳光便利店 No.3</span>
+    <div class="title-bar-btns">
+      <button class="btn-new-chat pulse" onclick="handleNewChat()" id="btnNewChat">
+        <span class="btn-new-chat-icon">+</span>
+        新聊天
+      </button>
+      <button class="btn-history" onclick="handleHistory()" id="btnHistory">
+        <span class="btn-history-icon">🕐</span>
+        历史
+      </button>
+    </div>
+  </div>
+
+  <!-- Chat Area -->
+  <div class="chat-area" id="chatArea">
+    <!-- AI Greeting -->
+    <div class="ai-message">
+      <div class="ai-avatar">王</div>
+      <div class="ai-bubble">
+        <div class="greeting">你好，我是小王 👋</div>
+        <div class="desc">我是阳光便利店 No.3 的数字店员，可以帮你查找商品、了解优惠活动、解决购物问题。试试问我吧～</div>
+      </div>
+    </div>
+
+    <!-- Quick Questions -->
+    <div class="quick-questions">
+      <div class="quick-pill" onclick="this.querySelector('.quick-pill-icon').textContent='✅'">
+        <span class="quick-pill-icon">📍</span>
+        薯片在哪里？
+      </div>
+      <div class="quick-pill">
+        <span class="quick-pill-icon">🏷️</span>
+        今天有什么活动？
+      </div>
+      <div class="quick-pill">
+        <span class="quick-pill-icon">🥤</span>
+        低糖饮料有哪些？
+      </div>
+      <div class="quick-pill">
+        <span class="quick-pill-icon">💳</span>
+        怎么付款？
+      </div>
+    </div>
+  </div>
+
+  <!-- Input Area -->
+  <div class="input-area">
+    <input type="text" class="input-box" placeholder="向小王提问...">
+    <button class="btn-send">↑</button>
+  </div>
+
+  <!-- Bottom Tab Bar -->
+  <div class="tab-bar">
+    <div class="tab-item">
+      <div class="tab-icon">🏠</div>
+      <span class="tab-label">首页</span>
+    </div>
+    <div class="tab-item">
+      <div class="tab-icon">🛒</div>
+      <span class="tab-label">购物</span>
+    </div>
+    <div class="tab-item active">
+      <div class="tab-icon">王</div>
+      <span class="tab-label">小王</span>
+    </div>
+    <div class="tab-item">
+      <div class="tab-icon">📋</div>
+      <span class="tab-label">订单</span>
+    </div>
+    <div class="tab-item">
+      <div class="tab-icon">👤</div>
+      <span class="tab-label">我的</span>
+    </div>
+  </div>
+
+  <!-- History Drawer -->
+  <div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
+  <div class="drawer" id="drawer">
+    <div class="drawer-header">
+      <span class="drawer-title">历史对话</span>
+      <button class="drawer-close" onclick="closeDrawer()">✕</button>
+    </div>
+    <div class="drawer-list">
+      <div class="drawer-item active">
+        <div class="drawer-item-icon">💬</div>
+        <div class="drawer-item-info">
+          <span class="drawer-item-title">阳光便利店 No.3</span>
+          <span class="drawer-item-date">今天 23:30</span>
+        </div>
+      </div>
+      <div class="drawer-item">
+        <div class="drawer-item-icon">🥤</div>
+        <div class="drawer-item-info">
+          <span class="drawer-item-title">低糖饮料推荐</span>
+          <span class="drawer-item-date">今天 18:42</span>
+        </div>
+      </div>
+      <div class="drawer-item">
+        <div class="drawer-item-icon">🎫</div>
+        <div class="drawer-item-info">
+          <span class="drawer-item-title">会员积分查询</span>
+          <span class="drawer-item-date">昨天 14:15</span>
+        </div>
+      </div>
+      <div class="drawer-item">
+        <div class="drawer-item-icon">📦</div>
+        <div class="drawer-item-info">
+          <span class="drawer-item-title">快递代收咨询</span>
+          <span class="drawer-item-date">6月20日</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Ripple -->
+  <div class="ripple-feedback" id="ripple"></div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast">
+    <span class="toast-icon">✨</span> 已创建新对话
+  </div>
+
+</div>
+
+<script>
+  // ── New Chat ──
+  function handleNewChat() {
+    const btn = document.getElementById('btnNewChat');
+    const chatArea = document.getElementById('chatArea');
+    const ripple = document.getElementById('ripple');
+    const toast = document.getElementById('toast');
+
+    // Button feedback
+    btn.style.transform = 'scale(0.9)';
+    setTimeout(() => { btn.style.transform = ''; }, 150);
+
+    // Ripple
+    ripple.classList.remove('fire');
+    void ripple.offsetWidth;
+    ripple.classList.add('fire');
+
+    // Toast
+    toast.classList.add('show');
+    setTimeout(() => { toast.classList.remove('show'); }, 1800);
+
+    // Reset chat area content (simulate new conversation)
+    setTimeout(() => {
+      chatArea.innerHTML = `
+        <div class="ai-message" style="animation: fadeInUp 0.4s ease both;">
+          <div class="ai-avatar">王</div>
+          <div class="ai-bubble">
+            <div class="greeting">新对话已开启 ✨</div>
+            <div class="desc">有什么想了解的？直接问我就好～</div>
+          </div>
+        </div>
+        <div class="quick-questions" style="animation: fadeInUp 0.4s 0.1s ease both;">
+          <div class="quick-pill">
+            <span class="quick-pill-icon">📍</span> 薯片在哪里？
+          </div>
+          <div class="quick-pill">
+            <span class="quick-pill-icon">🏷️</span> 今天有什么活动？
+          </div>
+          <div class="quick-pill">
+            <span class="quick-pill-icon">🥤</span> 低糖饮料有哪些？
+          </div>
+          <div class="quick-pill">
+            <span class="quick-pill-icon">💳</span> 怎么付款？
+          </div>
+        </div>
+      `;
+      chatArea.scrollTop = 0;
+    }, 200);
+  }
+
+  // ── History Drawer ──
+  function handleHistory() {
+    document.getElementById('drawer').classList.add('open');
+    document.getElementById('drawerOverlay').classList.add('open');
+  }
+
+  function closeDrawer() {
+    document.getElementById('drawer').classList.remove('open');
+    document.getElementById('drawerOverlay').classList.remove('open');
+  }
+
+  // ── Drawer item click ──
+  document.querySelectorAll('.drawer-item').forEach(item => {
+    item.addEventListener('click', function() {
+      document.querySelectorAll('.drawer-item').forEach(i => i.classList.remove('active'));
+      this.classList.add('active');
+      setTimeout(closeDrawer, 250);
+    });
+  });
+
+  // ── Close drawer on Escape ──
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeDrawer();
+  });
+</script>
+
+</body>
+</html>

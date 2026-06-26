@@ -13,14 +13,14 @@ describe('AnswerCard', () => {
           type: 'product',
           name: '可口可乐',
           location: 'B-02 货架',
-          price: '¥3.50',
+          price: '3.50',
         },
       },
     })
 
-    expect(wrapper.find('.product-name').text()).toBe('可口可乐')
-    expect(wrapper.find('.product-spec').text()).toBe('B-02 货架')
-    expect(wrapper.find('.product-price').text()).toBe('¥3.50')
+    expect(wrapper.find('.card-title').text()).toBe('可口可乐')
+    expect(wrapper.find('.card-sub').text()).toBe('B-02 货架')
+    expect(wrapper.find('.tag.price').text()).toBe('¥3.50')
   })
 
   it('渲染 inventory 卡片带库存', () => {
@@ -36,7 +36,7 @@ describe('AnswerCard', () => {
       },
     })
 
-    expect(wrapper.find('.product-name').text()).toBe('元气森林')
+    expect(wrapper.find('.card-title').text()).toBe('元气森林')
     expect(wrapper.find('.stock-badge').text()).toBe('库存充足')
     expect(wrapper.find('.stock-badge').classes()).toContain('high')
     expect(wrapper.find('.stock-count').text()).toContain('42')

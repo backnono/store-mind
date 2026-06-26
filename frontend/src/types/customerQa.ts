@@ -133,6 +133,17 @@ export interface EntryContext {
   promoTitle?: string
 }
 
+// ── 会话历史 (前端本地) ────────────────────────────────
+
+/** 本地会话摘要 */
+export interface LocalSessionSummary {
+  sessionId: number
+  storeId: number
+  title: string
+  lastMessagePreview?: string
+  updatedAt: number
+}
+
 // ── 活动列表响应 ───────────────────────────────────────
 
 export interface PromotionListResponse {

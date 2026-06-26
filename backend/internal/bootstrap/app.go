@@ -32,33 +32,41 @@ func Build() (*App, error) {
 
 	repo := mysql.NewCustomerQARepository(db)
 
-	// S0: 尝试接入 Python LLM Sidecar
+	// Agent 循环架构：用 LLMClient + Agent + Fallback 替代了旧版的
+	// Orchestrator + ContextResolver + SessionManager 三层依赖链
+
+	// Python LLM sidecar 同时作为 LLMClient（Agent 循环 Chat 接口）
 	pythonLLMClient := ai.NewPythonLLMClient(cfg.PythonLLMEndpoint)
 
-	// S1: 创建会话管理器（基于 repo 加载 context_stack）
-	sessionMgr := app.NewSessionManager(repo, logger.NewAppLogger(l))
+	// Agent 工具依赖
+	toolDeps := app.ToolDeps{
+		Repo: repo,
+		Log:  logger.NewAppLogger(l),
+	}
 
-	// S1: 创建上下文消解器（L1 规则 / L2 通过 Python LLM sidecar）
-	contextResolver := app.NewContextResolver(pythonLLMClient, logger.NewAppLogger(l))
+	// Agent（LLM tool calling 循环）
+	agent := app.NewAgent(pythonLLMClient, toolDeps, logger.NewAppLogger(l))
 
-	// S1: 创建引导引擎（规则驱动）
+	// 降级编排器（LLM 不可用时自动启用，完全保留关键词路由逻辑）
+	fallbackOrch := app.NewDefaultOrchestrator(repo, logger.NewAppLogger(l), nil, nil, nil)
+
+	// 引导引擎（规则驱动）
 	guideEngine := app.NewGuideEngine(logger.NewAppLogger(l))
 
-	orch := app.NewDefaultOrchestrator(repo, logger.NewAppLogger(l), pythonLLMClient, pythonLLMClient, defaultRetriever(repo, pythonLLMClient))
+	// 组装 Service
 	svc := app.NewServiceWithConfig(app.ServiceConfig{
-		Repo:            repo,
-		Log:             logger.NewAppLogger(l),
-		Orchestrator:    orch,
-		SessionManager:  sessionMgr,
-		ContextResolver: contextResolver,
-		GuideEngine:     guideEngine,
+		Repo:        repo,
+		Log:         logger.NewAppLogger(l),
+		Agent:       agent,
+		Fallback:    fallbackOrch,
+		GuideEngine: guideEngine,
 	})
 
-	// S0.5: 反馈端点
+	// HTTP 层
 	h := apihttp.NewCustomerQAHandler(svc, l)
 	fh := apihttp.NewFeedbackHandler(svc, l)
 
-	// S2.4: 管理后台 CRUD
+	// 管理后台 CRUD
 	adminRepo := mysql.NewAdminRepository(db)
 	ah := apihttp.NewAdminHandler(adminRepo, l)
 
@@ -67,6 +75,8 @@ func Build() (*App, error) {
 	return &App{Router: r, Logger: l, Config: cfg}, nil
 }
 
+// —— 以下保留供测试使用 ——
+
 func newCustomerQAService(
 	repo domain.Repository,
 	analyzer app.IntentAnalyzer,
@@ -74,14 +84,13 @@ func newCustomerQAService(
 	retriever app.Retriever,
 ) app.Service {
 	appLogger := logger.NewAppLogger(zap.NewNop())
-	// S0: 当 Python LLM endpoint 已配置时，传入 analyzer/composer/retriever
-	// orchestrator.Run() 中若 analyzer 为 nil 则自动降级到 fallbackOrchestrator
 	if analyzer != nil && composer != nil && retriever != nil {
-		return app.NewServiceWithOrchestrator(
-			repo,
-			appLogger,
-			app.NewDefaultOrchestrator(repo, appLogger, analyzer, composer, retriever),
-		)
+		return app.NewServiceWithConfig(app.ServiceConfig{
+			Repo:        repo,
+			Log:         appLogger,
+			Fallback:    app.NewDefaultOrchestrator(repo, appLogger, analyzer, composer, retriever),
+			GuideEngine: app.NewGuideEngine(appLogger),
+		})
 	}
 	return app.NewService(repo, appLogger)
 }

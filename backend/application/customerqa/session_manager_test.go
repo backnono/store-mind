@@ -128,10 +128,9 @@ func TestDecayCheck(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lastActive := now.Add(-tt.elapsed)
-			mgr := &defaultSessionManager{repo: nil, log: nopLogger{}}
-			got := mgr.decayCheck(lastActive)
+			got := DecayCheckDuration(lastActive)
 			if got != tt.want {
-				t.Errorf("decayCheck(%v ago) = %s, want %s", tt.elapsed, got, tt.want)
+				t.Errorf("DecayCheckDuration(%v ago) = %s, want %s", tt.elapsed, got, tt.want)
 			}
 		})
 	}
@@ -140,6 +139,3 @@ func TestDecayCheck(t *testing.T) {
 // ── Helpers ──
 
 func p64(v int64) *int64 { return &v }
-
-// ensure interface satisfaction
-var _ SessionManager = (*defaultSessionManager)(nil)

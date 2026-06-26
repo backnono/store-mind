@@ -48,3 +48,23 @@ type AnswerResult struct {
 type AnswerComposer interface {
 	ComposeAnswer(ctx context.Context, req AnswerRequest) (*AnswerResult, error)
 }
+
+// —— 指代消解层（保留向后兼容）——
+
+// AnaphoraClient LLM 指代消解接口。
+// 注意：Agent 循环架构中不再使用此接口，保留仅用于向后兼容。
+type AnaphoraClient interface {
+	ResolveAnaphora(
+		ctx context.Context,
+		message string,
+		contextStack []domain.ContextStackItem,
+		focusEntities *domain.FocusEntityIDs,
+	) (*AnaphoraLLMResult, error)
+}
+
+// AnaphoraLLMResult LLM 指代消解的原始返回。
+type AnaphoraLLMResult struct {
+	ResolvedEntities []domain.ResolvedEntity `json:"resolved_entities"`
+	Confidence       float64                 `json:"confidence"`
+	Explanation      string                  `json:"explanation"`
+}

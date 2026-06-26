@@ -1,9 +1,344 @@
 // ── 聊天页面 ──────────────────────────────────────
 .chat-page {
+  --chat-tabbar-reserve: 160px;
+  --chat-composer-height: 112px;
+  --chat-message-viewport-height: 360px;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
   height: 100vh;
+  height: 100dvh;
+  padding-bottom: 0;
   background: #1c1b18;
   overflow: hidden;
+}
+
+.chat-body {
+  flex: 0 0 var(--chat-message-viewport-height);
+  height: var(--chat-message-viewport-height);
+  min-height: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chat-scroll-area {
+  height: var(--chat-message-viewport-height);
+  min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+.chat-scroll-area .messages-inner {
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: 24px 20px 0;
+}
+
+.chat-scroll-bottom-anchor {
+  height: 1px;
+}
+
+.chat-composer-slot {
+  flex-shrink: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.chat-composer-slot .composer {
+  flex-shrink: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.chat-tabbar-reserve {
+  height: var(--chat-tabbar-reserve);
+  flex-shrink: 0;
+}
+
+// ── 顶部头部（放在页面级 WXSS，避免 Vue scoped 属性选择器在小程序端失效） ──
+.chat-header {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding: calc(62px + env(safe-area-inset-top)) 16px 14px;
+  border-bottom: 1px solid #2a2a38;
+  background: #0f0f14;
+  z-index: 10;
+}
+
+.chat-top-nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding-right: 188px;
+}
+
+.clerk-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #f59e4b, #e8792b);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 700;
+  color: #f7f2ea;
+  letter-spacing: 1px;
+  flex-shrink: 0;
+}
+
+.header-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.header-name {
+  font-size: 30px;
+  font-weight: 600;
+  color: #eeeef5;
+  line-height: 1.3;
+}
+
+.header-sub {
+  font-size: 22px;
+  color: #4ade80;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.live-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #4ade80;
+  animation: pulse-live 2s ease-in-out infinite;
+  box-shadow: 0 0 8px rgba(74, 222, 128, 0.55);
+  flex-shrink: 0;
+}
+
+@keyframes pulse-live {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.chat-title-bar {
+  box-sizing: border-box;
+  margin-top: 6px;
+  padding: 10px 14px;
+  background: #1e1e2a;
+  border: 1px solid #2a2a38;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 1px 0 #2a2a38, 0 4px 24px rgba(0, 0, 0, 0.34);
+  position: relative;
+  overflow: hidden;
+}
+
+.chat-title-bar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 16px;
+  right: 16px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #f59e4b, transparent);
+  opacity: 0.3;
+}
+
+.chat-title-label {
+  font-size: 24px;
+  font-weight: 600;
+  color: #8e8ea0;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.chat-title-shop {
+  font-size: 24px;
+  font-weight: 500;
+  color: #eeeef5;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.title-bar-btns {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.btn-new-chat,
+.btn-history {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 88px;
+  height: 56px;
+  box-sizing: border-box;
+  padding: 0 18px;
+  border-radius: 10px;
+  font-size: 24px;
+  line-height: 1;
+  white-space: nowrap;
+  transition: transform 0.16s ease, opacity 0.16s ease, background 0.16s ease;
+
+  &:active {
+    transform: scale(0.95);
+  }
+}
+
+.btn-new-chat {
+  background: linear-gradient(135deg, #f59e4b, #e8792b);
+  color: #f7f2ea;
+  font-weight: 600;
+  box-shadow: 0 2px 12px rgba(245, 158, 75, 0.15);
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.btn-new-chat-icon {
+  font-size: 30px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.btn-history {
+  background: #24242f;
+  border: 1px solid #2a2a38;
+  color: #c6c6d4;
+  font-weight: 500;
+}
+
+.btn-history-icon {
+  font-size: 24px;
+  line-height: 1;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 2px 12px rgba(245, 158, 75, 0.15); }
+  50% { box-shadow: 0 2px 20px rgba(245, 158, 75, 0.3); }
+}
+
+// ── 历史会话面板 ──────────────────────────────────
+.history-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: flex-start;
+}
+
+.history-panel {
+  width: 600px;
+  max-width: 82vw;
+  height: 100vh;
+  box-sizing: border-box;
+  background: #1a1a22;
+  border-right: 1px solid #2a2a38;
+  overflow-y: auto;
+  padding: calc(78px + env(safe-area-inset-top)) 0 calc(24px + env(safe-area-inset-bottom));
+  box-shadow: 20px 0 60px rgba(0, 0, 0, 0.34);
+}
+
+.history-title {
+  height: 64px;
+  box-sizing: border-box;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #2a2a38;
+}
+
+.history-title-text {
+  font-size: 32px;
+  font-weight: 700;
+  color: #eeeef5;
+}
+
+.history-close {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: #24242f;
+  color: #8e8ea0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  line-height: 1;
+}
+
+.history-item {
+  padding: 18px 20px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-left: 4px solid transparent;
+
+  &:active {
+    background: #24242f;
+  }
+
+  &.active {
+    background: rgba(245, 158, 75, 0.08);
+    border-left-color: #f59e4b;
+  }
+}
+
+.history-item-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  background: #24242f;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.history-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.history-item-title {
+  font-size: 28px;
+  font-weight: 500;
+  color: #eeeef5;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history-item-preview {
+  font-size: 22px;
+  color: #5c5c6e;
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history-empty {
+  text-align: center;
+  padding: 48px 24px;
+  font-size: 26px;
+  color: #5c5c6e;
 }
