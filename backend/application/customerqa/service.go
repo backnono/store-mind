@@ -152,10 +152,12 @@ type ServiceConfig struct {
 
 // NewService 创建仅使用降级编排器的应用服务（无 LLM）。
 func NewService(repo domain.Repository, log Logger) Service {
-	return NewServiceWithConfig(ServiceConfig{
-		Repo: repo,
-		Log:  log,
-	})
+	return NewServiceWithConfig(
+		ServiceConfig{
+			Repo: repo,
+			Log:  log,
+		},
+	)
 }
 
 // NewServiceWithConfig 使用完整配置创建应用服务（Agent 循环模式）。
@@ -207,7 +209,8 @@ func (s *service) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, err
 	}
 	req.Message = strings.TrimSpace(req.Message)
 
-	s.log.Info("app_chat_start",
+	s.log.Info(
+		"app_chat_start",
 		"request_id", req.RequestID, "store_id", req.StoreID,
 		"channel", req.Channel, "entry_mode", req.EntryMode,
 	)
@@ -237,13 +240,23 @@ func (s *service) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, err
 	}
 
 	// ③ 持久化用户消息
-	msg, err := s.repo.CreateMessage(ctx, &domain.Message{
-		SessionID: session.ID,
-		Role:      "user",
-		Content:   req.Message,
-	})
+	msg, err := s.repo.CreateMessage(
+		ctx, &domain.Message{
+			SessionID: session.ID,
+			Role:      "user",
+			Content:   req.Message,
+		},
+	)
 	if err != nil {
-		s.log.Error("app_chat_create_message_failed", "request_id", req.RequestID, "session_id", session.ID, "error", err)
+		s.log.Error(
+			"app_chat_create_message_failed",
+			"request_id",
+			req.RequestID,
+			"session_id",
+			session.ID,
+			"error",
+			err,
+		)
 		return nil, err
 	}
 
@@ -253,26 +266,39 @@ func (s *service) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, err
 	// ⑤ 引导芯片
 	var guidanceChips []GuidanceChip
 	if s.guideEngine != nil {
-		guidanceChips = s.guideEngine.Evaluate(GuideContext{
-			Intent:   loopResult.Intent,
-			Message:  req.Message,
-			Products: extractGuideProducts(loopResult.Cards),
-		})
+		guidanceChips = s.guideEngine.Evaluate(
+			GuideContext{
+				Intent:   loopResult.Intent,
+				Message:  req.Message,
+				Products: extractGuideProducts(loopResult.Cards),
+			},
+		)
 	}
 
 	// ⑥ 持久化 AI 回复
-	assistantMsg, err := s.repo.CreateMessage(ctx, &domain.Message{
-		SessionID: session.ID,
-		Role:      "assistant",
-		Content:   loopResult.Answer,
-		Intent:    loopResult.Intent,
-	})
+	assistantMsg, err := s.repo.CreateMessage(
+		ctx, &domain.Message{
+			SessionID: session.ID,
+			Role:      "assistant",
+			Content:   loopResult.Answer,
+			Intent:    loopResult.Intent,
+		},
+	)
 	if err != nil {
-		s.log.Error("app_chat_create_assistant_message_failed", "request_id", req.RequestID, "session_id", session.ID, "error", err)
+		s.log.Error(
+			"app_chat_create_assistant_message_failed",
+			"request_id",
+			req.RequestID,
+			"session_id",
+			session.ID,
+			"error",
+			err,
+		)
 		return nil, err
 	}
 
-	s.log.Info("app_chat_success",
+	s.log.Info(
+		"app_chat_success",
 		"request_id", req.RequestID, "session_id", session.ID,
 		"message_id", assistantMsg.ID, "route", loopResult.Route,
 	)
@@ -313,15 +339,17 @@ func (s *service) runAgentLoop(
 ) agentLoopResult {
 	// 无 Agent（无 LLM）→ 直接走 fallback
 	if s.agent == nil || !s.agent.UsesLLM() {
-		result, err := s.fallback.Run(ctx, OrchestratorRequest{
-			RequestID: req.RequestID,
-			StoreID:   req.StoreID,
-			SessionID: sessionID,
-			MessageID: messageID,
-			UserID:    req.UserID,
-			Channel:   req.Channel,
-			Message:   req.Message,
-		})
+		result, err := s.fallback.Run(
+			ctx, OrchestratorRequest{
+				RequestID: req.RequestID,
+				StoreID:   req.StoreID,
+				SessionID: sessionID,
+				MessageID: messageID,
+				UserID:    req.UserID,
+				Channel:   req.Channel,
+				Message:   req.Message,
+			},
+		)
 		if err != nil {
 			s.log.Error("app_chat_fallback_failed", "request_id", req.RequestID, "error", err)
 			return agentLoopResult{
@@ -341,36 +369,34 @@ func (s *service) runAgentLoop(
 		}
 	}
 
-	// 加载消息历史
-	history, _ := s.repo.ListRecentMessages(ctx, sessionID, 20)
+	// 加载消息历史（用户消息已在 Chat() 步骤③持久化，ListRecentMessages 会包含它）
+	history, _ := s.repo.ListRecentMessages(ctx, sessionID, 40)
 	agentHistory := ConvertToAgentMessages(history)
 
-	// 追加本轮用户消息
-	agentHistory = append(agentHistory, AgentMessage{
-		Role:    "user",
-		Content: req.Message,
-	})
-
 	// 运行 Agent 循环
-	result, err := s.agent.Run(ctx, AgentRunRequest{
-		StoreID:     req.StoreID,
-		SessionID:   sessionID,
-		MessageID:   messageID,
-		History:     agentHistory,
-		UserMessage: req.Message,
-	})
+	result, err := s.agent.Run(
+		ctx, AgentRunRequest{
+			StoreID:     req.StoreID,
+			SessionID:   sessionID,
+			MessageID:   messageID,
+			History:     agentHistory,
+			UserMessage: req.Message,
+		},
+	)
 	if err != nil {
 		s.log.Warn("app_chat_agent_failed", "request_id", req.RequestID, "error", err)
 		// 退回到 fallback
-		fbResult, fbErr := s.fallback.Run(ctx, OrchestratorRequest{
-			RequestID: req.RequestID,
-			StoreID:   req.StoreID,
-			SessionID: sessionID,
-			MessageID: messageID,
-			UserID:    req.UserID,
-			Channel:   req.Channel,
-			Message:   req.Message,
-		})
+		fbResult, fbErr := s.fallback.Run(
+			ctx, OrchestratorRequest{
+				RequestID: req.RequestID,
+				StoreID:   req.StoreID,
+				SessionID: sessionID,
+				MessageID: messageID,
+				UserID:    req.UserID,
+				Channel:   req.Channel,
+				Message:   req.Message,
+			},
+		)
 		if fbErr != nil {
 			return agentLoopResult{
 				Answer: "暂时无法处理你的问题，请稍后再试或联系人工客服。",
@@ -401,14 +427,20 @@ func (s *service) runAgentLoop(
 	}
 }
 
-// persistAgentMessages 持久化 Agent 循环中产生的 tool 和 assistant 消息。
-// 用户消息已在循环前持久化，这里只持久化新增的中间消息。
+// persistAgentMessages 持久化 Agent 循环中产生的中间消息（tool call + tool result）。
+// Agent.Run() 返回的 updatedHistory 仅含本轮新增消息，已排除历史消息。
+// 跳过 user（已由 Chat() 步骤③持久化）和最终 assistant（Chat() 步骤⑥持久化）。
 func (s *service) persistAgentMessages(ctx context.Context, sessionID int64, history []AgentMessage) {
 	domainMsgs := ConvertToDomainMessages(sessionID, history)
 	for _, m := range domainMsgs {
-		// 跳过已在循环前持久化的 user 消息
-		if m.Role == "user" && m.ID != 0 {
+		switch m.Role {
+		case "user":
 			continue
+		case "assistant":
+			// 仅持久化携带 tool_calls 的中间 assistant，最终回答由 Chat() ⑥ 持久化
+			if m.ToolCallsJSON == nil || *m.ToolCallsJSON == "" {
+				continue
+			}
 		}
 		if _, err := s.repo.CreateMessage(ctx, &m); err != nil {
 			s.log.Warn("agent_persist_message_failed",
@@ -446,11 +478,13 @@ func (s *service) resolveSession(ctx context.Context, req ChatRequest) (*domain.
 		}
 		return session, nil
 	}
-	return s.repo.CreateSession(ctx, &domain.Session{
-		StoreID: req.StoreID,
-		UserID:  req.UserID,
-		Channel: req.Channel,
-	})
+	return s.repo.CreateSession(
+		ctx, &domain.Session{
+			StoreID: req.StoreID,
+			UserID:  req.UserID,
+			Channel: req.Channel,
+		},
+	)
 }
 
 // —— 入口适配方法 ——
@@ -464,12 +498,14 @@ func (s *service) entryFirstOpen(ctx context.Context, req ChatRequest, session *
 		{Text: "🥤 低糖饮料有哪些？", Prompt: "低糖饮料有哪些？"},
 		{Text: "💳 怎么付款？", Prompt: "怎么付款？"},
 	}
-	msg, err := s.repo.CreateMessage(ctx, &domain.Message{
-		SessionID: session.ID,
-		Role:      "assistant",
-		Content:   answer,
-		Intent:    "greeting",
-	})
+	msg, err := s.repo.CreateMessage(
+		ctx, &domain.Message{
+			SessionID: session.ID,
+			Role:      "assistant",
+			Content:   answer,
+			Intent:    "greeting",
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -503,20 +539,24 @@ func (s *service) entryZoneScan(ctx context.Context, req ChatRequest, session *d
 	for _, p := range products {
 		loc, err := s.repo.GetProductLocation(ctx, req.StoreID, p.ID)
 		if err == nil {
-			cards = append(cards, ChatCard{
-				Type:     "product",
-				Name:     p.Name,
-				Location: loc.ZoneName + " " + loc.ShelfCode + " 货架",
-			})
+			cards = append(
+				cards, ChatCard{
+					Type:     "product",
+					Name:     p.Name,
+					Location: loc.ZoneName + " " + loc.ShelfCode + " 货架",
+				},
+			)
 		}
 	}
 
-	msg, err := s.repo.CreateMessage(ctx, &domain.Message{
-		SessionID: session.ID,
-		Role:      "assistant",
-		Content:   answer,
-		Intent:    "zone_scan",
-	})
+	msg, err := s.repo.CreateMessage(
+		ctx, &domain.Message{
+			SessionID: session.ID,
+			Role:      "assistant",
+			Content:   answer,
+			Intent:    "zone_scan",
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -533,12 +573,14 @@ func (s *service) entryZoneScan(ctx context.Context, req ChatRequest, session *d
 // entryResume 历史会话恢复入口。
 func (s *service) entryResume(ctx context.Context, req ChatRequest, session *domain.Session) (*ChatResponse, error) {
 	answer := "欢迎回来！有什么需要帮您的吗？"
-	msg, err := s.repo.CreateMessage(ctx, &domain.Message{
-		SessionID: session.ID,
-		Role:      "assistant",
-		Content:   answer,
-		Intent:    "resume",
-	})
+	msg, err := s.repo.CreateMessage(
+		ctx, &domain.Message{
+			SessionID: session.ID,
+			Role:      "assistant",
+			Content:   answer,
+			Intent:    "resume",
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -559,22 +601,26 @@ func (s *service) entryPromo(ctx context.Context, req ChatRequest, session *doma
 	}
 
 	answer := "今天的活动是" + items[0].Title + "，参与商品有："
-	cards := []ChatCard{{
-		Type:     "promotion",
-		Title:    items[0].Title,
-		Content:  items[0].Description,
-		Validity: items[0].EndAt.Format("01-02 15:04"),
-	}}
+	cards := []ChatCard{
+		{
+			Type:     "promotion",
+			Title:    items[0].Title,
+			Content:  items[0].Description,
+			Validity: items[0].EndAt.Format("01-02 15:04"),
+		},
+	}
 	guidanceChips := []GuidanceChip{
 		{Text: "📍 活动商品在哪里？", Prompt: "活动商品在哪里？"},
 	}
 
-	msg, err := s.repo.CreateMessage(ctx, &domain.Message{
-		SessionID: session.ID,
-		Role:      "assistant",
-		Content:   answer,
-		Intent:    "promotion",
-	})
+	msg, err := s.repo.CreateMessage(
+		ctx, &domain.Message{
+			SessionID: session.ID,
+			Role:      "assistant",
+			Content:   answer,
+			Intent:    "promotion",
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -590,7 +636,10 @@ func (s *service) entryPromo(ctx context.Context, req ChatRequest, session *doma
 }
 
 // entryProductDetail 商品详情入口。
-func (s *service) entryProductDetail(ctx context.Context, req ChatRequest, session *domain.Session) (*ChatResponse, error) {
+func (s *service) entryProductDetail(ctx context.Context, req ChatRequest, session *domain.Session) (
+	*ChatResponse,
+	error,
+) {
 	products, err := s.repo.SearchProducts(ctx, req.StoreID, req.Message, 1)
 	if err != nil || len(products) == 0 {
 		return s.entryFirstOpen(ctx, req, session)
@@ -603,11 +652,13 @@ func (s *service) entryProductDetail(ctx context.Context, req ChatRequest, sessi
 		locStr = loc.ZoneName + " " + loc.ShelfCode + " 货架"
 	}
 	answer := "为您找到了这个："
-	cards := []ChatCard{{
-		Type:     "product",
-		Name:     p.Name,
-		Location: locStr,
-	}}
+	cards := []ChatCard{
+		{
+			Type:     "product",
+			Name:     p.Name,
+			Location: locStr,
+		},
+	}
 	if loc != nil && loc.SKUID != nil {
 		cards[0].SKUID = *loc.SKUID
 	}
@@ -616,12 +667,14 @@ func (s *service) entryProductDetail(ctx context.Context, req ChatRequest, sessi
 		{Text: "🥤 同品类还有什么？", Prompt: "同品类还有什么？"},
 	}
 
-	msg, err := s.repo.CreateMessage(ctx, &domain.Message{
-		SessionID: session.ID,
-		Role:      "assistant",
-		Content:   answer,
-		Intent:    "product_detail",
-	})
+	msg, err := s.repo.CreateMessage(
+		ctx, &domain.Message{
+			SessionID: session.ID,
+			Role:      "assistant",
+			Content:   answer,
+			Intent:    "product_detail",
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -739,11 +792,13 @@ func (s *service) SaveFeedback(ctx context.Context, messageID, sessionID int64, 
 	if !ok {
 		return domain.ErrInvalidArgument
 	}
-	_, err := feedbackRepo.CreateFeedback(ctx, &domain.Feedback{
-		MessageID:     messageID,
-		SessionID:     sessionID,
-		FeedbackValue: feedbackValue,
-	})
+	_, err := feedbackRepo.CreateFeedback(
+		ctx, &domain.Feedback{
+			MessageID:     messageID,
+			SessionID:     sessionID,
+			FeedbackValue: feedbackValue,
+		},
+	)
 	return err
 }
 

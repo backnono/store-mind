@@ -22,6 +22,8 @@ type MessageModel struct {
 	ContextState   *string   `gorm:"type:varchar(32)"`
 	FocusEntityIDs *string   `gorm:"type:json"`
 	ContextStack   *string   `gorm:"type:json"`
+	ToolCallsJSON  *string   `gorm:"type:json"`
+	ToolCallID     *string   `gorm:"type:varchar(64)"`
 	CreatedAt      time.Time `gorm:"autoCreateTime"`
 }
 

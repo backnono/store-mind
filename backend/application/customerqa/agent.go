@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -75,7 +76,7 @@ type AgentRunRequest struct {
 type AgentRunResult struct {
 	FinalAnswer    string         // LLM 的最终自然语言回答
 	Cards          []ChatCard     // 从 tool 返回结果中提取的结构化卡片
-	UpdatedHistory []AgentMessage // 更新后的完整消息历史（含本轮所有消息）
+	UpdatedHistory []AgentMessage // 本轮新增的消息（不含已持久化的历史）
 }
 
 // —— Agent 循环核心 ——
@@ -94,8 +95,9 @@ const MaxAgentLoops = 5
 //
 // 流程:
 //  1. 构建初始消息列表（system + history + user）
-//  2. 循环: LLM → 解析 → tool 调用 → 观察 → 再推理
-//  3. 返回 final_answer + cards + 更新后的消息历史
+//  2. 记录基础消息数量（baseLen），循环中新增的消息会追加到末尾
+//  3. 循环: LLM → 解析 → tool 调用 → 观察 → 再推理
+//  4. 返回 final_answer + cards + 本轮新增的消息（messages[baseLen:]）
 func (a *Agent) Run(ctx context.Context, req AgentRunRequest) (*AgentRunResult, error) {
 	// 1. 构建消息列表：system prompt + 历史消息
 	messages := make([]AgentMessage, 0, len(req.History)+1)
@@ -104,6 +106,9 @@ func (a *Agent) Run(ctx context.Context, req AgentRunRequest) (*AgentRunResult, 
 		Content: SystemPrompt(req.StoreID),
 	})
 	messages = append(messages, req.History...)
+
+	// 记录基础消息位置：本轮新增的消息从 baseLen 开始
+	baseLen := len(messages)
 
 	// 2. 循环
 	for loop := 0; loop < MaxAgentLoops; loop++ {
@@ -133,7 +138,7 @@ func (a *Agent) Run(ctx context.Context, req AgentRunRequest) (*AgentRunResult, 
 				assistantMsg.ToolCalls = append(assistantMsg.ToolCalls, AgentToolCall{
 					ID:   tc.ID,
 					Name: tc.Name,
-					Args: tc.Args,
+					Args: normalizeToolArgs(tc.Name, tc.Args),
 				})
 			}
 			messages = append(messages, assistantMsg)
@@ -198,7 +203,7 @@ func (a *Agent) Run(ctx context.Context, req AgentRunRequest) (*AgentRunResult, 
 		return &AgentRunResult{
 			FinalAnswer:    resp.Content,
 			Cards:          extractCards(messages),
-			UpdatedHistory: messages[1:], // 去掉 system prompt
+			UpdatedHistory: messages[baseLen:], // 仅本轮新增的消息
 		}, nil
 	}
 
@@ -215,11 +220,54 @@ func (a *Agent) Run(ctx context.Context, req AgentRunRequest) (*AgentRunResult, 
 	return &AgentRunResult{
 		FinalAnswer:    fallbackAnswer,
 		Cards:          extractCards(messages),
-		UpdatedHistory: messages[1:],
+		UpdatedHistory: messages[baseLen:],
 	}, nil
 }
 
 // UsesLLM 判断 Agent 是否具备 LLM 能力。
 func (a *Agent) UsesLLM() bool {
 	return a.llmClient != nil
+}
+
+// normalizeToolArgs 将 LLM 返回的 tool args 标准化为合法的 JSON。
+//
+// 背景: DeepSeek（及其他 LLM）的 tool calling 返回的 function.arguments 是 JSON string，
+// Python chat_agent.py 已做 json.loads 转为 object。但若 Python sidecar 未更新，
+// Go 侧收到的 args 仍可能是 JSON string（如 "\"{\\"query\\":\\"薯片\\"}\""）。
+// 此函数提供兜底防御：若 args 是 JSON string，解析为 object 后再传递。
+func normalizeToolArgs(toolName string, raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return raw
+	}
+
+	// 快速判断：以 '{' 或 '[' 开头说明已经是 JSON object/array，直接返回
+	first := raw[0]
+	if first == '{' || first == '[' || first == 'n' {
+		return raw
+	}
+
+	// 以 '"' 开头说明是 JSON string → 尝试解析
+	if first == '"' {
+		var s string
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return raw
+		}
+		s = strings.TrimSpace(s)
+		if s != "" && (s[0] == '{' || s[0] == '[') {
+			// s 是 JSON object/array 的字符串表示 → 作为 json.RawMessage 使用
+			return json.RawMessage(s)
+		}
+		// s 是普通字符串（如 "薯片"）→ 包装为 {"query":"薯片"} 等
+		// 根据 tool 名称自动补全字段名
+		switch toolName {
+		case "search_products", "search_faq":
+			return json.RawMessage(fmt.Sprintf(`{"query":%s}`, raw))
+		case "get_product_location":
+			// 尝试解析为数字 product_id
+			return json.RawMessage(fmt.Sprintf(`{"product_id":%s}`, raw))
+		case "get_inventory", "get_price":
+			return json.RawMessage(fmt.Sprintf(`{"sku_id":%s}`, raw))
+		}
+	}
+	return raw
 }

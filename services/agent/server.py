@@ -1,7 +1,7 @@
 """
 小王 · 数字店员 — Python LLM Sidecar
 FastAPI 服务，监听 localhost:9090
-提供 4 个端点：意图分析、答案生成、指代消解、语义重排序
+提供 5 个端点：Agent 推理、意图分析、答案生成、指代消解、语义重排序
 """
 
 import os
@@ -17,6 +17,7 @@ from intent_analyzer import IntentAnalyzer
 from answer_composer import AnswerComposer
 from anaphora_resolver import AnaphoraResolver
 from semantic_ranker import SemanticRanker
+from chat_agent import ChatAgent
 
 # ── 配置 ────────────────────────────────────────────
 logging.basicConfig(
@@ -35,11 +36,12 @@ intent_analyzer: IntentAnalyzer
 answer_composer: AnswerComposer
 anaphora_resolver: AnaphoraResolver
 semantic_ranker: SemanticRanker
+chat_agent: ChatAgent
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global intent_analyzer, answer_composer, anaphora_resolver, semantic_ranker
+    global intent_analyzer, answer_composer, anaphora_resolver, semantic_ranker, chat_agent
     logger.info("Initializing LLM components...")
 
     intent_analyzer = IntentAnalyzer(
@@ -58,6 +60,11 @@ async def lifespan(app: FastAPI):
         model=DEEPSEEK_MODEL,
     )
     semantic_ranker = SemanticRanker(
+        api_key=DEEPSEEK_API_KEY,
+        base_url=DEEPSEEK_BASE_URL,
+        model=DEEPSEEK_MODEL,
+    )
+    chat_agent = ChatAgent(
         api_key=DEEPSEEK_API_KEY,
         base_url=DEEPSEEK_BASE_URL,
         model=DEEPSEEK_MODEL,
@@ -193,6 +200,48 @@ async def semantic_search(req: dict):
 @app.get("/health")
 async def health():
     return {"status": "ok", "model": DEEPSEEK_MODEL}
+
+
+# ── Agent 循环推理 ───────────────────────────────────
+
+
+@app.post("/llm/chat")
+async def agent_chat(req: dict):
+    """
+    Agent 循环推理（Go 侧 Agent 循环的核心 LLM 调用）。
+    
+    与 /llm/intent 和 /llm/answer 的根本区别：
+    - 不写专用 system prompt（Go 已通过 messages[0] 注入）
+    - 不定义输出 schema（Go 自行解析）
+    
+    输入: {
+        messages: [{role, content, tool_calls?, tool_id?}, ...],
+        tools: [{type: "function", function: {name, description}}, ...]
+    }
+    输出: {
+        content: "回答文本",
+        tool_calls?: [{id, name, args}]
+    }
+    超时: 12s
+    """
+    start = time.monotonic()
+    try:
+        messages = req.get("messages", [])
+        tools = req.get("tools", [])
+        result = await chat_agent.chat(messages, tools)
+        elapsed = time.monotonic() - start
+
+        if result.get("tool_calls"):
+            tc_count = len(result["tool_calls"])
+            logger.info(f"agent chat → {tc_count} tool_calls ({elapsed:.2f}s)")
+        else:
+            preview = (result.get("content", "") or "")[:80]
+            logger.info(f"agent chat → answer ({elapsed:.2f}s): {preview}...")
+        return result
+    except Exception as e:
+        elapsed = time.monotonic() - start
+        logger.error(f"agent chat failed ({elapsed:.2f}s): {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ── 入口 ─────────────────────────────────────────────

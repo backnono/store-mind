@@ -111,10 +111,14 @@ func (t *SearchProductsTool) Run(ctx context.Context, storeID, sessionID, messag
 		Limit int    `json:"limit"`
 	}
 	if err := json.Unmarshal(args, &input); err != nil {
-		return `{"error": "invalid args: query is required"}`, err
+		output := fmt.Sprintf(`{"error": "invalid args: %s"}`, err.Error())
+		recordToolCall(ctx, t.deps, sessionID, messageID, "search_products", args, output, time.Since(start), err)
+		return output, err
 	}
 	if strings.TrimSpace(input.Query) == "" {
-		return `{"error": "query is required"}`, nil
+		output := `{"error": "query is required"}`
+		recordToolCall(ctx, t.deps, sessionID, messageID, "search_products", args, output, time.Since(start), nil)
+		return output, nil
 	}
 	if input.Limit <= 0 {
 		input.Limit = 5
@@ -296,11 +300,16 @@ func (t *SearchFAQTool) Run(ctx context.Context, storeID, sessionID, messageID i
 		Limit int    `json:"limit"`
 	}
 	if err := json.Unmarshal(args, &input); err != nil {
-		return `{"error": "invalid args: query is required"}`, err
+		output := fmt.Sprintf(`{"error": "invalid args: %s"}`, err.Error())
+		recordToolCall(ctx, t.deps, sessionID, messageID, "search_faq", args, output, time.Since(start), err)
+		return output, err
 	}
 	if strings.TrimSpace(input.Query) == "" {
-		return `{"error": "query is required"}`, nil
+		output := `{"error": "query is required"}`
+		recordToolCall(ctx, t.deps, sessionID, messageID, "search_faq", args, output, time.Since(start), nil)
+		return output, nil
 	}
+
 	if input.Limit <= 0 {
 		input.Limit = 5
 	}
